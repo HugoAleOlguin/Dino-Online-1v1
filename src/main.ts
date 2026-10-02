@@ -606,7 +606,7 @@ class DinoApp {
         remoteVisual = {
           name: 'BOT T-Rex',
           color: '#acacac',
-          skinId: 'cyborg',
+          skinId: 'hurdles',
           isLocal: false,
           score: this.bot.engine.score,
           distance: this.bot.engine.distance,
