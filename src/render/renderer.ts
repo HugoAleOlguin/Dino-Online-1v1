@@ -162,8 +162,8 @@ export class DoubleTrackRenderer {
 
   private drawDino(player: PlayerVisualState, x: number, groundY: number): void {
     const ctx = this.ctx;
-    const skin: SkinAnimationSet = SKINS.classic;
-    const img = this.spriteManager.getImage('/dino-classic.png');
+    const skin: SkinAnimationSet = SKINS[player.skinId] || SKINS.classic;
+    const img = this.spriteManager.getImage('/dino-skins.png') || this.spriteManager.getImage('/dino-classic.png');
 
     // Natural running cadence: legs alternate every 24 pixels of track distance
     const runStep = Math.floor(player.distance / 24) % 2;

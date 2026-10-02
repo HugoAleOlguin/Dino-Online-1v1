@@ -15,6 +15,8 @@ const COLORS = [
   '#e67e22', // Retro Amber
 ];
 
+const SKIN_KEYS = Object.keys(SKINS);
+
 class DinoApp {
   private spriteManager: SpriteManager;
   private renderer!: DoubleTrackRenderer;
@@ -24,7 +26,7 @@ class DinoApp {
   private profile: PlayerProfile = {
     name: localStorage.getItem('dino_name') || 'Dino',
     color: localStorage.getItem('dino_color') || COLORS[0],
-    skinId: 'classic',
+    skinId: localStorage.getItem('dino_skin') || 'classic',
   };
 
   private remoteProfile: PlayerProfile | null = null;
@@ -55,6 +57,9 @@ class DinoApp {
   private nameInput = document.getElementById('player-name') as HTMLInputElement;
   private colorPalette = document.getElementById('color-palette')!;
   private skinPreviewCanvas = document.getElementById('skin-preview-canvas') as HTMLCanvasElement;
+  private skinPrevBtn = document.getElementById('skin-prev-btn') as HTMLButtonElement;
+  private skinNextBtn = document.getElementById('skin-next-btn') as HTMLButtonElement;
+  private skinNameLabel = document.getElementById('skin-name-label') as HTMLElement;
 
   // Section 2 UI Panels (State Machine)
   private roomMenuView = document.getElementById('room-menu-view')!;
@@ -95,11 +100,14 @@ class DinoApp {
   }
 
   async init(): Promise<void> {
-    // 1. Load clean classic dino sprite sheet
+    // 1. Load clean classic dino and HD skin sprite sheets
     try {
-      await this.spriteManager.load('/dino-classic.png');
+      await Promise.all([
+        this.spriteManager.load('/dino-skins.png'),
+        this.spriteManager.load('/dino-classic.png').catch(() => {}),
+      ]);
     } catch (e) {
-      console.error('Failed to load dino-classic.png', e);
+      console.error('Failed to load dino-skins.png', e);
     }
 
     // 2. Setup Canvas Renderer
@@ -279,7 +287,32 @@ class DinoApp {
       this.colorPalette.appendChild(swatch);
     });
 
-    // 3. Panel Navigation: Show Create Room View
+    // 3. Skin Selection Carousel
+    const updateSkin = (newSkinId: string) => {
+      this.profile.skinId = newSkinId;
+      localStorage.setItem('dino_skin', newSkinId);
+      this.skinNameLabel.textContent = SKINS[newSkinId]?.name || newSkinId;
+      this.p2p.setLocalProfile(this.profile);
+    };
+
+    if (!SKINS[this.profile.skinId]) {
+      this.profile.skinId = 'classic';
+    }
+    this.skinNameLabel.textContent = SKINS[this.profile.skinId]?.name || 'T-Rex Clásico HD';
+
+    this.skinPrevBtn.addEventListener('click', () => {
+      const currentIndex = SKIN_KEYS.indexOf(this.profile.skinId);
+      const nextIndex = (currentIndex - 1 + SKIN_KEYS.length) % SKIN_KEYS.length;
+      updateSkin(SKIN_KEYS[nextIndex]);
+    });
+
+    this.skinNextBtn.addEventListener('click', () => {
+      const currentIndex = SKIN_KEYS.indexOf(this.profile.skinId);
+      const nextIndex = (currentIndex + 1) % SKIN_KEYS.length;
+      updateSkin(SKIN_KEYS[nextIndex]);
+    });
+
+    // 4. Panel Navigation: Show Create Room View
     this.createRoomBtn.addEventListener('click', async () => {
       this.hideError();
       try {
@@ -389,12 +422,12 @@ class DinoApp {
     ctx.clearRect(0, 0, 88, 94);
     ctx.imageSmoothingEnabled = false;
 
-    const img = this.spriteManager.getImage('/dino-classic.png');
+    const img = this.spriteManager.getImage('/dino-skins.png') || this.spriteManager.getImage('/dino-classic.png');
     if (!img) return;
 
     // Calm preview animation cadence: 2.5 steps per second
     const frame = Math.floor(this.previewAnimTimer * 2.5) % 2;
-    const skin = SKINS.classic;
+    const skin = SKINS[this.profile.skinId] || SKINS.classic;
     const spriteRect = skin.run[frame];
 
     // Draw at 2x scale crisp pixel art in the center
@@ -557,7 +590,7 @@ class DinoApp {
       const localVisual: PlayerVisualState = {
         name: this.profile.name,
         color: this.profile.color,
-        skinId: 'classic',
+        skinId: this.profile.skinId,
         isLocal: true,
         score: this.localEngine.score,
         distance: this.localEngine.distance,
@@ -573,7 +606,7 @@ class DinoApp {
         remoteVisual = {
           name: 'BOT T-Rex',
           color: '#acacac',
-          skinId: 'classic',
+          skinId: 'cyborg',
           isLocal: false,
           score: this.bot.engine.score,
           distance: this.bot.engine.distance,
@@ -586,7 +619,7 @@ class DinoApp {
         remoteVisual = {
           name: this.remoteProfile.name,
           color: this.remoteProfile.color,
-          skinId: 'classic',
+          skinId: this.remoteProfile.skinId || 'classic',
           isLocal: false,
           score: this.remoteState.score,
           distance: this.remoteState.distance,

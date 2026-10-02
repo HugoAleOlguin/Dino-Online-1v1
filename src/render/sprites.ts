@@ -1,3 +1,5 @@
+import skinData from './skin-data.json';
+
 export interface SpriteRect {
   x: number;
   y: number;
@@ -8,7 +10,6 @@ export interface SpriteRect {
 export interface SkinAnimationSet {
   id: string;
   name: string;
-  file: string;
   idle: SpriteRect;
   run: [SpriteRect, SpriteRect];
   duck: [SpriteRect, SpriteRect];
@@ -17,30 +18,12 @@ export interface SkinAnimationSet {
   duckHeight: number;
 }
 
-export const SKINS: Record<string, SkinAnimationSet> = {
-  classic: {
-    id: 'classic',
-    name: 'T-Rex Clásico',
-    file: '/dino-classic.png',
-    idle: { x: 2, y: 2, w: 44, h: 47 },
-    run: [
-      { x: 50, y: 2, w: 44, h: 47 },
-      { x: 98, y: 2, w: 44, h: 47 },
-    ],
-    dead: { x: 146, y: 2, w: 44, h: 47 },
-    duck: [
-      { x: 194, y: 19, w: 59, h: 30 },
-      { x: 257, y: 19, w: 59, h: 30 },
-    ],
-    targetHeight: 47,
-    duckHeight: 30,
-  },
-};
+export const SKINS: Record<string, SkinAnimationSet> = skinData as any;
 
 export class SpriteManager {
   private images: Map<string, HTMLImageElement> = new Map();
 
-  async load(src: string): Promise<HTMLImageElement> {
+  async load(src: string = '/dino-skins.png'): Promise<HTMLImageElement> {
     if (this.images.has(src)) return this.images.get(src)!;
 
     return new Promise((resolve, reject) => {
@@ -54,7 +37,7 @@ export class SpriteManager {
     });
   }
 
-  getImage(src: string = '/dino-classic.png'): HTMLImageElement | null {
+  getImage(src: string = '/dino-skins.png'): HTMLImageElement | null {
     return this.images.get(src) || null;
   }
 }
