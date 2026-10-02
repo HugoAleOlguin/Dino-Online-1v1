@@ -16,6 +16,13 @@ export interface PlayerVisualState {
   isDead: boolean;
 }
 
+export type MatchOverlayState =
+  | { type: 'COUNTDOWN'; text: string }
+  | { type: 'LOCAL_CRASHED_SPECTATING'; myDistance: number }
+  | { type: 'VICTORY'; myDistance: number; rivalDistance: number; rivalName: string }
+  | { type: 'DEFEAT'; myDistance: number; rivalDistance: number; rivalName: string }
+  | { type: 'TIE'; distance: number };
+
 export class DoubleTrackRenderer {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -41,9 +48,9 @@ export class DoubleTrackRenderer {
     localEngine: GameEngine,
     localPlayer: PlayerVisualState,
     remotePlayer: PlayerVisualState | null,
-    countdownText: string | null = null,
-    winnerMessage: string | null = null,
-    activeEvent: MatchEvent | null = null
+    overlay: MatchOverlayState | null = null,
+    activeEvent: MatchEvent | null = null,
+    isRivalEliminated: boolean = false
   ): void {
     const ctx = this.ctx;
     ctx.imageSmoothingEnabled = false;
@@ -58,6 +65,7 @@ export class DoubleTrackRenderer {
     }
 
     // 3. Draw Track 1 (Top Track - Player 1 / Local Player)
+    const isCountdown = overlay?.type === 'COUNTDOWN';
     this.drawTrack(
       this.track1GroundY,
       localEngine.distance,
@@ -66,8 +74,18 @@ export class DoubleTrackRenderer {
       'TU PISTA (P1)',
       localPlayer.color || '#ffffff',
       true,
-      countdownText !== null
+      isCountdown
     );
+
+    // Celebratory alert when rival died and local is still running
+    if (isRivalEliminated && !localPlayer.isDead) {
+      const now = performance.now();
+      const pulse = 0.5 + 0.5 * Math.sin(now / 120);
+      ctx.fillStyle = pulse > 0.5 ? '#f1c40f' : '#ffffff';
+      ctx.font = 'bold 11px "Press Start 2P", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('🏆 ¡RIVAL ELIMINADO! CORRE POR EL RÉCORD 🏆', this.vWidth / 2, this.track1GroundY - 145);
+    }
 
     // 4. Middle Divider with Active Event Banner or Minimalist Line
     if (activeEvent) {
@@ -87,17 +105,31 @@ export class DoubleTrackRenderer {
         isBot ? 'BOT' : 'PISTA RIVAL (P2)',
         remotePlayer.color || '#acacac',
         false,
-        countdownText !== null
+        isCountdown
       );
     } else {
       this.drawWaitingTrack(this.track2GroundY);
     }
 
-    // 6. Overlays: Countdown or Winner announcement
-    if (countdownText) {
-      this.drawCountdownOverlay(countdownText);
-    } else if (winnerMessage) {
-      this.drawWinnerOverlay(winnerMessage);
+    // 6. Overlays: Asymmetric Game Over / Spectating / Victory
+    if (overlay) {
+      switch (overlay.type) {
+        case 'COUNTDOWN':
+          this.drawCountdownOverlay(overlay.text);
+          break;
+        case 'LOCAL_CRASHED_SPECTATING':
+          this.drawSpectatingOverlay(overlay.myDistance);
+          break;
+        case 'VICTORY':
+          this.drawVictoryOverlay(overlay.myDistance, overlay.rivalDistance, overlay.rivalName);
+          break;
+        case 'DEFEAT':
+          this.drawDefeatOverlay(overlay.myDistance, overlay.rivalDistance, overlay.rivalName);
+          break;
+        case 'TIE':
+          this.drawTieOverlay(overlay.distance);
+          break;
+      }
     }
   }
 
@@ -511,24 +543,121 @@ export class DoubleTrackRenderer {
     ctx.fillText('[ESPACIO / ARRIBA]: SALTAR   |   [FLECHA ABAJO]: AGACHARSE', this.vWidth / 2, this.vHeight / 2 + 82);
   }
 
-  private drawWinnerOverlay(message: string): void {
+  private drawSpectatingOverlay(myDistance: number): void {
     const ctx = this.ctx;
-    ctx.fillStyle = 'rgba(32, 33, 36, 0.85)';
+    // Darken ONLY Track 1 (top half) leaving Track 2 completely clear to spectate!
+    ctx.fillStyle = 'rgba(32, 33, 36, 0.78)';
+    ctx.fillRect(0, 0, this.vWidth, 255);
+
+    ctx.fillStyle = '#e74c3c';
+    ctx.font = 'bold 22px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('G A M E   O V E R', this.vWidth / 2, 65);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '12px "Press Start 2P", monospace';
+    ctx.fillText(`CHOCASTE A LOS ${myDistance} METROS`, this.vWidth / 2, 105);
+
+    ctx.fillStyle = '#f1c40f';
+    ctx.font = '10px "Press Start 2P", monospace';
+    ctx.fillText('👀 MODO ESPECTADOR: EL RIVAL SIGUE CORRIENDO ABAJO', this.vWidth / 2, 145);
+
+    ctx.fillStyle = '#70757a';
+    ctx.font = '9px "Press Start 2P", monospace';
+    ctx.fillText('EL RESULTADO FINAL SE MOSTRARÁ CUANDO EL RIVAL CHOQUE', this.vWidth / 2, 175);
+  }
+
+  private drawVictoryOverlay(myDistance: number, rivalDistance: number, rivalName: string): void {
+    const ctx = this.ctx;
+    ctx.fillStyle = 'rgba(32, 33, 36, 0.88)';
     ctx.fillRect(0, 0, this.vWidth, this.vHeight);
 
-    // Classic G A M E   O V E R style
-    ctx.fillStyle = '#535353';
+    // Glowing Retro Gold VICTORY Title
+    ctx.fillStyle = '#f1c40f';
     ctx.font = 'bold 36px "Press Start 2P", monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('G A M E   O V E R', this.vWidth / 2, this.vHeight / 2 - 40);
+    ctx.fillText('¡ V I C T O R I A !', this.vWidth / 2, this.vHeight / 2 - 75);
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = '16px "Press Start 2P", monospace';
-    ctx.fillText(message, this.vWidth / 2, this.vHeight / 2 + 15);
+    ctx.font = '14px "Press Start 2P", monospace';
+    ctx.fillText('¡HAS GANADO EL DUELO!', this.vWidth / 2, this.vHeight / 2 - 25);
+
+    // Score comparison card
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.fillRect(this.vWidth / 2 - 260, this.vHeight / 2 + 5, 520, 56);
+    ctx.strokeStyle = '#f1c40f';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(this.vWidth / 2 - 260, this.vHeight / 2 + 5, 520, 56);
+
+    ctx.font = '11px "Press Start 2P", monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(`TÚ: ${myDistance} m   vs   ${rivalName}: ${rivalDistance} m`, this.vWidth / 2, this.vHeight / 2 + 25);
+
+    const diff = myDistance - rivalDistance;
+    ctx.fillStyle = '#2ecc71';
+    ctx.fillText(`+${diff} METROS DE VENTAJA`, this.vWidth / 2, this.vHeight / 2 + 45);
+
+    // Rematch call to action
+    ctx.fillStyle = '#acacac';
+    ctx.font = '11px "Press Start 2P", monospace';
+    ctx.fillText('PULSA REVANCHA PARA CORRER DE NUEVO', this.vWidth / 2, this.vHeight / 2 + 95);
+  }
+
+  private drawDefeatOverlay(myDistance: number, rivalDistance: number, rivalName: string): void {
+    const ctx = this.ctx;
+    ctx.fillStyle = 'rgba(32, 33, 36, 0.88)';
+    ctx.fillRect(0, 0, this.vWidth, this.vHeight);
+
+    // Classic Red/Gray Game Over
+    ctx.fillStyle = '#e74c3c';
+    ctx.font = 'bold 36px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('G A M E   O V E R', this.vWidth / 2, this.vHeight / 2 - 75);
+
+    ctx.fillStyle = '#acacac';
+    ctx.font = '14px "Press Start 2P", monospace';
+    ctx.fillText(`DERROTA: ${rivalName} LLEGÓ MÁS LEJOS`, this.vWidth / 2, this.vHeight / 2 - 25);
+
+    // Comparison card
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+    ctx.fillRect(this.vWidth / 2 - 260, this.vHeight / 2 + 5, 520, 56);
+    ctx.strokeStyle = '#535353';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(this.vWidth / 2 - 260, this.vHeight / 2 + 5, 520, 56);
+
+    ctx.font = '11px "Press Start 2P", monospace';
+    ctx.fillStyle = '#acacac';
+    ctx.fillText(`TÚ: ${myDistance} m   vs   ${rivalName}: ${rivalDistance} m`, this.vWidth / 2, this.vHeight / 2 + 25);
+
+    const diff = rivalDistance - myDistance;
+    ctx.fillStyle = '#e74c3c';
+    ctx.fillText(`-${diff} METROS DE DIFERENCIA`, this.vWidth / 2, this.vHeight / 2 + 45);
 
     ctx.fillStyle = '#70757a';
     ctx.font = '11px "Press Start 2P", monospace';
-    ctx.fillText('PULSA REVANCHA PARA CORRER DE NUEVO', this.vWidth / 2, this.vHeight / 2 + 65);
+    ctx.fillText('PULSA REVANCHA PARA VOLVER A INTENTARLO', this.vWidth / 2, this.vHeight / 2 + 95);
+  }
+
+  private drawTieOverlay(distance: number): void {
+    const ctx = this.ctx;
+    ctx.fillStyle = 'rgba(32, 33, 36, 0.88)';
+    ctx.fillRect(0, 0, this.vWidth, this.vHeight);
+
+    ctx.fillStyle = '#f1c40f';
+    ctx.font = 'bold 36px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('¡ E M P A T E !', this.vWidth / 2, this.vHeight / 2 - 40);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '14px "Press Start 2P", monospace';
+    ctx.fillText(`AMBOS CHOCARON A LOS ${distance} METROS`, this.vWidth / 2, this.vHeight / 2 + 10);
+
+    ctx.fillStyle = '#70757a';
+    ctx.font = '11px "Press Start 2P", monospace';
+    ctx.fillText('PULSA REVANCHA PARA EL DESEMPATE', this.vWidth / 2, this.vHeight / 2 + 60);
   }
 }

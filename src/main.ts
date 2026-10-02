@@ -2,7 +2,7 @@ import { SpriteManager, SKINS } from './render/sprites';
 import { GameEngine } from './core/game-engine';
 import { DinoAction } from './core/physics';
 import { DinoBot } from './core/bot';
-import { DoubleTrackRenderer, PlayerVisualState } from './render/renderer';
+import { DoubleTrackRenderer, PlayerVisualState, MatchOverlayState } from './render/renderer';
 import { P2PManager, PlayerProfile } from './net/p2p';
 
 // Authentic Chrome Dino Palette
@@ -49,7 +49,12 @@ class DinoApp {
   private isMatchRunning = false;
   private currentSeed: number = 12345;
   private countdownEndTime: number | null = null;
-  private winnerAnnouncement: string | null = null;
+
+  // Asymmetric match overlay state and distance tracking
+  private matchOverlay: MatchOverlayState | null = null;
+  private localDeathDistance: number | null = null;
+  private remoteDeathDistance: number | null = null;
+  private botDeathDistance: number | null = null;
 
   // UI Elements
   private lobbyScreen = document.getElementById('lobby-screen')!;
@@ -145,37 +150,71 @@ class DinoApp {
 
   private setupEngineCallbacks(): void {
     this.localEngine.onCollision = (score, distance) => {
+      this.localDeathDistance = Math.floor(distance);
+
       if (this.isBotMode && this.bot) {
-        if (this.bot.engine.isGameOver) {
-          if (distance > this.bot.engine.distance) {
-            this.winnerAnnouncement = '¡VICTORIA! Superaste al Bot';
-          } else if (distance < this.bot.engine.distance) {
-            this.winnerAnnouncement = 'DERROTA: El Bot llegó más lejos';
+        if (this.bot.engine.isGameOver && this.botDeathDistance !== null) {
+          // Bot already crashed earlier, player survived longer -> VICTORY!
+          if (this.localDeathDistance > this.botDeathDistance) {
+            this.matchOverlay = {
+              type: 'VICTORY',
+              myDistance: this.localDeathDistance,
+              rivalDistance: this.botDeathDistance,
+              rivalName: 'BOT',
+            };
+          } else if (this.localDeathDistance < this.botDeathDistance) {
+            this.matchOverlay = {
+              type: 'DEFEAT',
+              myDistance: this.localDeathDistance,
+              rivalDistance: this.botDeathDistance,
+              rivalName: 'BOT',
+            };
           } else {
-            this.winnerAnnouncement = 'EMPATE EXACTO';
+            this.matchOverlay = { type: 'TIE', distance: this.localDeathDistance };
           }
+          this.rematchBar.classList.remove('hidden');
         } else {
-          this.winnerAnnouncement = 'DERROTA: Has chocado';
+          // Player crashed, but bot is still running!
+          // Only local player gets Game Over, bot continues!
+          this.matchOverlay = {
+            type: 'LOCAL_CRASHED_SPECTATING',
+            myDistance: this.localDeathDistance,
+          };
         }
-        this.rematchBar.classList.remove('hidden');
         return;
       }
 
-      // Multiplayer mode
-      this.p2p.send({ type: 'DIED', score, distance });
+      // Multiplayer mode: notify peer that we died at this distance
+      this.p2p.send({ type: 'DIED', score, distance: this.localDeathDistance });
 
-      if (this.remoteState.isDead) {
-        if (distance > this.remoteState.distance) {
-          this.winnerAnnouncement = '¡VICTORIA! Sobreviviste más';
-        } else if (distance < this.remoteState.distance) {
-          this.winnerAnnouncement = 'DERROTA: El rival llegó más lejos';
+      if (this.remoteState.isDead && this.remoteDeathDistance !== null) {
+        // Rival had already died earlier! Player survived longer and now crashed -> VICTORY!
+        if (this.localDeathDistance > this.remoteDeathDistance) {
+          this.matchOverlay = {
+            type: 'VICTORY',
+            myDistance: this.localDeathDistance,
+            rivalDistance: this.remoteDeathDistance,
+            rivalName: this.remoteProfile?.name || 'Rival',
+          };
+        } else if (this.localDeathDistance < this.remoteDeathDistance) {
+          this.matchOverlay = {
+            type: 'DEFEAT',
+            myDistance: this.localDeathDistance,
+            rivalDistance: this.remoteDeathDistance,
+            rivalName: this.remoteProfile?.name || 'Rival',
+          };
         } else {
-          this.winnerAnnouncement = 'EMPATE EXACTO';
+          this.matchOverlay = { type: 'TIE', distance: this.localDeathDistance };
         }
+        this.rematchBar.classList.remove('hidden');
       } else {
-        this.winnerAnnouncement = 'HAS CHOCADO... Esperando al rival';
+        // Local crashed first! Remote is still running!
+        // Local gets Game Over & spectator mode. Remote continues playing!
+        this.matchOverlay = {
+          type: 'LOCAL_CRASHED_SPECTATING',
+          myDistance: this.localDeathDistance,
+        };
       }
-      this.rematchBar.classList.remove('hidden');
     };
   }
 
@@ -212,20 +251,34 @@ class DinoApp {
       onRemoteDied: (score, distance) => {
         this.remoteState.isDead = true;
         this.remoteState.score = score;
-        this.remoteState.distance = distance;
+        this.remoteDeathDistance = Math.floor(distance);
+        this.remoteState.distance = this.remoteDeathDistance;
 
-        if (!this.localEngine.isGameOver) {
-          this.winnerAnnouncement = '¡VICTORIA! El rival ha chocado';
-        } else {
-          if (this.localEngine.distance > distance) {
-            this.winnerAnnouncement = '¡VICTORIA! Sobreviviste más';
-          } else if (this.localEngine.distance < distance) {
-            this.winnerAnnouncement = 'DERROTA: El rival llegó más lejos';
+        if (this.localEngine.isGameOver && this.localDeathDistance !== null) {
+          // Local had already died earlier and was spectating!
+          // Now rival has also finished their run.
+          if (this.localDeathDistance > this.remoteDeathDistance) {
+            this.matchOverlay = {
+              type: 'VICTORY',
+              myDistance: this.localDeathDistance,
+              rivalDistance: this.remoteDeathDistance,
+              rivalName: this.remoteProfile?.name || 'Rival',
+            };
+          } else if (this.localDeathDistance < this.remoteDeathDistance) {
+            this.matchOverlay = {
+              type: 'DEFEAT',
+              myDistance: this.localDeathDistance,
+              rivalDistance: this.remoteDeathDistance,
+              rivalName: this.remoteProfile?.name || 'Rival',
+            };
           } else {
-            this.winnerAnnouncement = 'EMPATE EXACTO';
+            this.matchOverlay = { type: 'TIE', distance: this.localDeathDistance };
           }
+          this.rematchBar.classList.remove('hidden');
+        } else {
+          // Local player is STILL ALIVE!
+          // Rival died, but local continues playing without any interruption!
         }
-        this.rematchBar.classList.remove('hidden');
       },
 
       onRematchRequested: (seed) => {
@@ -262,7 +315,10 @@ class DinoApp {
       };
     }
 
-    this.winnerAnnouncement = null;
+    this.matchOverlay = null;
+    this.localDeathDistance = null;
+    this.remoteDeathDistance = null;
+    this.botDeathDistance = null;
     this.rematchBar.classList.add('hidden');
     this.countdownEndTime = startTimestamp;
     this.isMatchRunning = false;
@@ -557,7 +613,10 @@ class DinoApp {
     this.rematchBar.classList.add('hidden');
     this.isMatchRunning = false;
     this.countdownEndTime = null;
-    this.winnerAnnouncement = null;
+    this.matchOverlay = null;
+    this.localDeathDistance = null;
+    this.remoteDeathDistance = null;
+    this.botDeathDistance = null;
     this.physicsAccumulator = 0;
     this.lastFrameTime = 0;
   }
@@ -608,9 +667,31 @@ class DinoApp {
           if (this.isBotMode && this.bot) {
             this.bot.update(this.FIXED_DELTA);
 
-            if (this.bot.engine.isGameOver && !this.localEngine.isGameOver) {
-              this.winnerAnnouncement = '¡VICTORIA! El Bot ha chocado';
-              this.rematchBar.classList.remove('hidden');
+            if (this.bot.engine.isGameOver && this.botDeathDistance === null) {
+              this.botDeathDistance = Math.floor(this.bot.engine.distance);
+
+              if (this.localEngine.isGameOver && this.localDeathDistance !== null) {
+                // Both are dead now!
+                if (this.localDeathDistance > this.botDeathDistance) {
+                  this.matchOverlay = {
+                    type: 'VICTORY',
+                    myDistance: this.localDeathDistance,
+                    rivalDistance: this.botDeathDistance,
+                    rivalName: 'BOT',
+                  };
+                } else if (this.localDeathDistance < this.botDeathDistance) {
+                  this.matchOverlay = {
+                    type: 'DEFEAT',
+                    myDistance: this.localDeathDistance,
+                    rivalDistance: this.botDeathDistance,
+                    rivalName: 'BOT',
+                  };
+                } else {
+                  this.matchOverlay = { type: 'TIE', distance: this.localDeathDistance };
+                }
+                this.rematchBar.classList.remove('hidden');
+              }
+              // If local player is still alive, local keeps playing!
             }
           }
           this.physicsAccumulator -= this.FIXED_DELTA;
@@ -667,13 +748,22 @@ class DinoApp {
         };
       }
 
+      const isRivalEliminated = this.isBotMode
+        ? !!(this.bot?.engine.isGameOver && !this.localEngine.isGameOver)
+        : !!(this.remoteState.isDead && !this.localEngine.isGameOver);
+
+      let currentOverlay: MatchOverlayState | null = this.matchOverlay;
+      if (countdownText) {
+        currentOverlay = { type: 'COUNTDOWN', text: countdownText };
+      }
+
       this.renderer.render(
         this.localEngine,
         localVisual,
         remoteVisual,
-        countdownText,
-        this.winnerAnnouncement,
-        this.localEngine.activeEvent
+        currentOverlay,
+        this.localEngine.activeEvent,
+        isRivalEliminated
       );
     }
 
