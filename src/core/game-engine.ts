@@ -1,5 +1,6 @@
 import { Dino, DinoAction } from './physics';
 import { Obstacle, generateObstaclesForTrack } from './obstacles';
+import { EventManager, MatchEvent } from './events';
 import {
   TREX_COLLISION_BOXES,
   OBSTACLE_COLLISION_BOXES,
@@ -13,9 +14,11 @@ export interface GameEngineConfig {
 }
 
 export class GameEngine {
-  public readonly seed: number;
+  public seed: number;
   public readonly dino: Dino;
   public obstacles: Obstacle[] = [];
+  public eventManager: EventManager;
+  public activeEvent: MatchEvent | null = null;
 
   public distance: number = 0;
   public speed: number;
@@ -29,12 +32,13 @@ export class GameEngine {
 
   constructor(seed: number, config: GameEngineConfig = {}) {
     this.seed = seed;
-    this.initialSpeed = config.initialSpeed ?? 380;
+    this.initialSpeed = config.initialSpeed ?? 360;
     this.maxSpeed = config.maxSpeed ?? 820;
     this.speed = this.initialSpeed;
 
     this.dino = new Dino({ xPosition: 60 });
     this.obstacles = generateObstaclesForTrack(seed, this.trackGeneratedUpTo);
+    this.eventManager = new EventManager(seed);
   }
 
   get score(): number {
@@ -49,25 +53,34 @@ export class GameEngine {
   update(dt: number): void {
     if (this.isGameOver) return;
 
-    // 1. Update local dino physics (0ms input latency)
+    // 1. Check for active events at current distance
+    this.activeEvent = this.eventManager.getActiveEvent(this.distance);
+    if (this.activeEvent) {
+      this.dino.gravityMultiplier = this.activeEvent.gravityMultiplier;
+    } else {
+      this.dino.gravityMultiplier = 1.0;
+    }
+
+    // 2. Update local dino physics (0ms input latency)
     this.dino.update(dt);
 
-    // 2. Advance track distance
-    this.distance += this.speed * dt;
+    // 3. Advance track distance
+    const speedBonus = this.activeEvent ? this.activeEvent.speedBonus : 0;
+    this.distance += (this.speed + speedBonus) * dt;
 
-    // 3. Gradual acceleration curve
+    // 4. Gradual acceleration curve matching Chrome
     this.speed = Math.min(
       this.maxSpeed,
-      this.initialSpeed + Math.pow(this.distance / 1000, 0.75) * 45
+      this.initialSpeed + Math.pow(this.distance / 1000, 0.72) * 48
     );
 
-    // 4. Extend obstacles buffer if needed
+    // 5. Extend obstacles buffer if needed
     if (this.distance + 2500 > this.trackGeneratedUpTo) {
       this.trackGeneratedUpTo += 2500;
       this.obstacles = generateObstaclesForTrack(this.seed, this.trackGeneratedUpTo);
     }
 
-    // 5. Pixel-accurate Multi-Box Collision check (Chromium offline.js exact model)
+    // 6. Pixel-accurate Multi-Box Collision check (Chromium offline.js exact model)
     const dinoScreenX = this.dino.x;
     const dinoHeight = this.dino.isDucking ? 30 : 47;
     const dinoScreenY = -dinoHeight - this.dino.y;
@@ -115,11 +128,14 @@ export class GameEngine {
   }
 
   reset(newSeed: number = this.seed): void {
+    this.seed = newSeed;
     this.distance = 0;
     this.speed = this.initialSpeed;
     this.isGameOver = false;
     this.dino.reset();
     this.trackGeneratedUpTo = 3000;
     this.obstacles = generateObstaclesForTrack(newSeed, this.trackGeneratedUpTo);
+    this.eventManager = new EventManager(newSeed);
+    this.activeEvent = null;
   }
 }

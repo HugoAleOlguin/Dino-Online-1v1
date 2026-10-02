@@ -1,22 +1,22 @@
 import fs from 'fs';
 import zlib from 'zlib';
 
-const buf = fs.readFileSync('Browser Games - Google Dinosaur Run Game - Playable Characters - Dinosaur.png');
-const width = buf.readUInt32BE(16);
-const height = buf.readUInt32BE(20);
+// 1. Load community sprite sheet (Browser Games PNG)
+const buf1 = fs.readFileSync('Browser Games - Google Dinosaur Run Game - Playable Characters - Dinosaur.png');
+const width1 = buf1.readUInt32BE(16);
+const height1 = buf1.readUInt32BE(20);
 
-let pos = 8;
-const idat = [];
-while (pos < buf.length) {
-  const len = buf.readUInt32BE(pos);
-  const type = buf.toString('ascii', pos + 4, pos + 8);
-  if (type === 'IDAT') idat.push(buf.subarray(pos + 8, pos + 8 + len));
-  pos += 12 + len;
+let pos1 = 8;
+const idat1 = [];
+while (pos1 < buf1.length) {
+  const len = buf1.readUInt32BE(pos1);
+  const type = buf1.toString('ascii', pos1 + 4, pos1 + 8);
+  if (type === 'IDAT') idat1.push(buf1.subarray(pos1 + 8, pos1 + 8 + len));
+  pos1 += 12 + len;
 }
-const raw = zlib.inflateSync(Buffer.concat(idat));
-const bpp = 4;
-const stride = 1 + width * bpp;
-const uncompressed = Buffer.alloc(width * height * bpp);
+const raw1 = zlib.inflateSync(Buffer.concat(idat1));
+const stride1 = 1 + width1 * 4;
+const uncompressed1 = Buffer.alloc(width1 * height1 * 4);
 
 function paeth(a, b, c) {
   const p = a + b - c;
@@ -28,15 +28,15 @@ function paeth(a, b, c) {
   return c;
 }
 
-let prevRow = Buffer.alloc(width * bpp);
-for (let y = 0; y < height; y++) {
-  const filter = raw[y * stride];
-  const currentRow = Buffer.alloc(width * bpp);
-  for (let x = 0; x < width * bpp; x++) {
-    const rawByte = raw[y * stride + 1 + x];
-    const left = x >= bpp ? currentRow[x - bpp] : 0;
-    const up = prevRow[x];
-    const upLeft = x >= bpp ? prevRow[x - bpp] : 0;
+let prevRow1 = Buffer.alloc(width1 * 4);
+for (let y = 0; y < height1; y++) {
+  const filter = raw1[y * stride1];
+  const currentRow = Buffer.alloc(width1 * 4);
+  for (let x = 0; x < width1 * 4; x++) {
+    const rawByte = raw1[y * stride1 + 1 + x];
+    const left = x >= 4 ? currentRow[x - 4] : 0;
+    const up = prevRow1[x];
+    const upLeft = x >= 4 ? prevRow1[x - 4] : 0;
     let val = 0;
     if (filter === 0) val = rawByte;
     else if (filter === 1) val = (rawByte + left) & 0xff;
@@ -45,14 +45,51 @@ for (let y = 0; y < height; y++) {
     else if (filter === 4) val = (rawByte + paeth(left, up, upLeft)) & 0xff;
     currentRow[x] = val;
   }
-  currentRow.copy(uncompressed, y * width * bpp);
-  prevRow = currentRow;
+  currentRow.copy(uncompressed1, y * width1 * 4);
+  prevRow1 = currentRow;
 }
 
-const bgR = uncompressed[0], bgG = uncompressed[1], bgB = uncompressed[2];
-
+const bgR1 = uncompressed1[0], bgG1 = uncompressed1[1], bgB1 = uncompressed1[2];
 function isBg(r, g, b) {
-  return Math.abs(r - bgR) < 15 && Math.abs(g - bgG) < 15 && Math.abs(b - bgB) < 15;
+  return Math.abs(r - bgR1) < 15 && Math.abs(g - bgG1) < 15 && Math.abs(b - bgB1) < 15;
+}
+
+// 2. Load official Chromium sprite sheet (public/offline-sprite-dark.png)
+const buf2 = fs.readFileSync('public/offline-sprite-dark.png');
+const width2 = buf2.readUInt32BE(16);
+const height2 = buf2.readUInt32BE(20);
+
+let pos2 = 8;
+const idat2 = [];
+while (pos2 < buf2.length) {
+  const len = buf2.readUInt32BE(pos2);
+  const type = buf2.toString('ascii', pos2 + 4, pos2 + 8);
+  if (type === 'IDAT') idat2.push(buf2.subarray(pos2 + 8, pos2 + 8 + len));
+  pos2 += 12 + len;
+}
+const raw2 = zlib.inflateSync(Buffer.concat(idat2));
+const stride2 = 1 + width2 * 4;
+const uncompressed2 = Buffer.alloc(width2 * height2 * 4);
+
+let prevRow2 = Buffer.alloc(width2 * 4);
+for (let y = 0; y < height2; y++) {
+  const filter = raw2[y * stride2];
+  const currentRow = Buffer.alloc(width2 * 4);
+  for (let x = 0; x < width2 * 4; x++) {
+    const rawByte = raw2[y * stride2 + 1 + x];
+    const left = x >= 4 ? currentRow[x - 4] : 0;
+    const up = prevRow2[x];
+    const upLeft = x >= 4 ? prevRow2[x - 4] : 0;
+    let val = 0;
+    if (filter === 0) val = rawByte;
+    else if (filter === 1) val = (rawByte + left) & 0xff;
+    else if (filter === 2) val = (rawByte + up) & 0xff;
+    else if (filter === 3) val = (rawByte + Math.floor((left + up) / 2)) & 0xff;
+    else if (filter === 4) val = (rawByte + paeth(left, up, upLeft)) & 0xff;
+    currentRow[x] = val;
+  }
+  currentRow.copy(uncompressed2, y * width2 * 4);
+  prevRow2 = currentRow;
 }
 
 // 7 Authentic Google Chrome Community Skins
@@ -60,20 +97,22 @@ const SKINS_DEF = [
   {
     id: 'classic',
     name: 'T-Rex Clásico Original',
+    source: 'chromium',
     targetHeight: 47,
     duckHeight: 30,
     frames: {
-      idle: { sx: 55, sy: 3, w: 44, h: 47 },
-      run1: { sx: 104, sy: 3, w: 44, h: 47 },
-      run2: { sx: 153, sy: 3, w: 44, h: 47 },
-      dead: { sx: 202, sy: 3, w: 44, h: 47 },
-      duck1: { sx: 349, sy: 20, w: 59, h: 30 },
-      duck2: { sx: 413, sy: 20, w: 59, h: 30 },
+      idle: { sx: 848, sy: 2, w: 44, h: 47 },
+      run1: { sx: 936, sy: 2, w: 44, h: 47 },
+      run2: { sx: 980, sy: 2, w: 44, h: 47 },
+      dead: { sx: 1024, sy: 2, w: 44, h: 47 },
+      duck1: { sx: 1112, sy: 19, w: 59, h: 30 },
+      duck2: { sx: 1171, sy: 19, w: 59, h: 30 },
     }
   },
   {
     id: 'party',
     name: 'T-Rex Cumpleaños 🥳',
+    source: 'community',
     targetHeight: 63,
     duckHeight: 43,
     frames: {
@@ -88,6 +127,7 @@ const SKINS_DEF = [
   {
     id: 'hurdles',
     name: 'T-Rex Atleta 🏃',
+    source: 'community',
     targetHeight: 47,
     duckHeight: 38,
     frames: {
@@ -102,6 +142,7 @@ const SKINS_DEF = [
   {
     id: 'gymnastics',
     name: 'T-Rex Gimnasta 🤸',
+    source: 'community',
     targetHeight: 47,
     duckHeight: 35,
     frames: {
@@ -116,6 +157,7 @@ const SKINS_DEF = [
   {
     id: 'surfing',
     name: 'T-Rex Surfista 🏄',
+    source: 'community',
     targetHeight: 55,
     duckHeight: 45,
     frames: {
@@ -130,6 +172,7 @@ const SKINS_DEF = [
   {
     id: 'equestrian',
     name: 'T-Rex Ecuestre 🐎',
+    source: 'community',
     targetHeight: 67,
     duckHeight: 55,
     frames: {
@@ -144,6 +187,7 @@ const SKINS_DEF = [
   {
     id: 'swimming',
     name: 'T-Rex Natación 🏊',
+    source: 'community',
     targetHeight: 35,
     duckHeight: 26,
     frames: {
@@ -157,14 +201,11 @@ const SKINS_DEF = [
   }
 ];
 
-// Layout on output sheet
-// Each skin gets a row with 6 frames: idle, run1, run2, dead, duck1, duck2
 const rowHeight = 78;
 const totalSheetWidth = 420;
 const totalSheetHeight = rowHeight * SKINS_DEF.length;
 
-const sheetBuf = Buffer.alloc(totalSheetWidth * totalSheetHeight * 4); // All zeros = transparent!
-
+const sheetBuf = Buffer.alloc(totalSheetWidth * totalSheetHeight * 4);
 const skinMetadata = {};
 
 SKINS_DEF.forEach((skin, rowIndex) => {
@@ -182,7 +223,6 @@ SKINS_DEF.forEach((skin, rowIndex) => {
 
   frameKeys.forEach((fKey) => {
     const src = skin.frames[fKey];
-    // Align frame to bottom of the row so ground alignments match
     const destY = rowStartY + (rowHeight - src.h - 4);
     const destRect = { x: currentX, y: destY, w: src.w, h: src.h };
 
@@ -193,19 +233,26 @@ SKINS_DEF.forEach((skin, rowIndex) => {
     if (fKey === 'duck1') skinFrames.duck = [destRect];
     if (fKey === 'duck2') skinFrames.duck.push(destRect);
 
-    // Copy exact pixels from source, making background cyan transparent
+    const isChromium = skin.source === 'chromium';
+    const srcBuf = isChromium ? uncompressed2 : uncompressed1;
+    const srcWidth = isChromium ? width2 : width1;
+
     for (let y = 0; y < src.h; y++) {
       for (let x = 0; x < src.w; x++) {
-        const srcIdx = ((src.sy + y) * width + (src.sx + x)) * 4;
-        const r = uncompressed[srcIdx], g = uncompressed[srcIdx+1], b = uncompressed[srcIdx+2];
+        const srcIdx = ((src.sy + y) * srcWidth + (src.sx + x)) * 4;
+        const r = srcBuf[srcIdx];
+        const g = srcBuf[srcIdx + 1];
+        const b = srcBuf[srcIdx + 2];
+        const a = srcBuf[srcIdx + 3];
 
-        if (isBg(r, g, b)) continue; // Keep transparent!
+        if (a < 10) continue;
+        if (!isChromium && isBg(r, g, b)) continue;
 
         const destIdx = ((destY + y) * totalSheetWidth + (currentX + x)) * 4;
         sheetBuf[destIdx] = r;
-        sheetBuf[destIdx+1] = g;
-        sheetBuf[destIdx+2] = b;
-        sheetBuf[destIdx+3] = 255;
+        sheetBuf[destIdx + 1] = g;
+        sheetBuf[destIdx + 2] = b;
+        sheetBuf[destIdx + 3] = a;
       }
     }
 
@@ -261,4 +308,4 @@ const png = Buffer.concat([
 fs.writeFileSync('public/dino-skins.png', png);
 fs.writeFileSync('src/render/skin-data.json', JSON.stringify(skinMetadata, null, 2));
 
-console.log('Successfully extracted 7 authentic Google community skins into public/dino-skins.png and src/render/skin-data.json');
+console.log('Successfully updated public/dino-skins.png with Chromium official classic Trex and 6 community skins!');

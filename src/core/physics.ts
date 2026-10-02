@@ -2,6 +2,7 @@ import { Box } from './collision';
 
 export enum DinoAction {
   JUMP = 'JUMP',
+  JUMP_END = 'JUMP_END',
   DUCK_START = 'DUCK_START',
   DUCK_END = 'DUCK_END',
 }
@@ -25,12 +26,15 @@ export class Dino {
   private readonly jumpVelocity: number;
   private readonly gravity: number;
   private readonly fastFallMultiplier: number;
+  public gravityMultiplier: number = 1.0;
 
   constructor(config: DinoConfig = {}) {
     this.x = config.xPosition ?? 60;
-    this.jumpVelocity = config.jumpVelocity ?? 600;
-    this.gravity = config.gravity ?? -1800;
-    this.fastFallMultiplier = 2.2;
+    // Exactly calibrated to Chromium offline.js jump curve:
+    // At 60 FPS: 12 px/frame jump, 0.58 px/frame^2 gravity
+    this.jumpVelocity = config.jumpVelocity ?? 720;
+    this.gravity = config.gravity ?? -2100;
+    this.fastFallMultiplier = 2.8;
   }
 
   handleInput(action: DinoAction): void {
@@ -45,11 +49,18 @@ export class Dino {
         }
         break;
 
+      case DinoAction.JUMP_END:
+        // Variable jump height: release early for short hop
+        if (!this.isGrounded && this.vy > 240 && this.y > 25) {
+          this.vy = 240;
+        }
+        break;
+
       case DinoAction.DUCK_START:
         this.isDucking = true;
-        // Fast fall if ducking while in mid-air
-        if (!this.isGrounded && this.vy > -300) {
-          this.vy = -500;
+        // Fast drop if ducking while in mid-air (official SPEED_DROP_COEFFICIENT)
+        if (!this.isGrounded) {
+          this.vy = Math.min(this.vy, -400);
         }
         break;
 
@@ -63,9 +74,10 @@ export class Dino {
     if (this.isDead) return;
 
     if (!this.isGrounded) {
+      const effGravity = this.gravity * this.gravityMultiplier;
       const currentGravity = this.isDucking
-        ? this.gravity * this.fastFallMultiplier
-        : this.gravity;
+        ? effGravity * this.fastFallMultiplier
+        : effGravity;
 
       this.y += this.vy * dt;
       this.vy += currentGravity * dt;
@@ -88,6 +100,7 @@ export class Dino {
     this.isGrounded = true;
     this.isDucking = false;
     this.isDead = false;
+    this.gravityMultiplier = 1.0;
   }
 
   getHitbox(): Box {

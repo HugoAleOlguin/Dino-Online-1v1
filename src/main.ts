@@ -95,19 +95,25 @@ class DinoApp {
   private previewAnimTimer = 0;
   private lastNetworkSendTime = 0;
 
+  // Fixed timestep physics accumulator for screen parity (144Hz/120Hz/60Hz)
+  private lastFrameTime = 0;
+  private physicsAccumulator = 0;
+  private readonly FIXED_DELTA = 1 / 60;
+
   constructor() {
     this.spriteManager = new SpriteManager();
   }
 
   async init(): Promise<void> {
-    // 1. Load clean classic dino and HD skin sprite sheets
+    // 1. Load authentic Chromium sprites and community skins
     try {
       await Promise.all([
+        this.spriteManager.load('/offline-sprite-dark.png'),
         this.spriteManager.load('/dino-skins.png'),
         this.spriteManager.load('/dino-classic.png').catch(() => {}),
       ]);
     } catch (e) {
-      console.error('Failed to load dino-skins.png', e);
+      console.error('Failed to load sprite sheets', e);
     }
 
     // 2. Setup Canvas Renderer
@@ -260,6 +266,8 @@ class DinoApp {
     this.rematchBar.classList.add('hidden');
     this.countdownEndTime = startTimestamp;
     this.isMatchRunning = false;
+    this.physicsAccumulator = 0;
+    this.lastFrameTime = 0;
   }
 
   private setupUI(): void {
@@ -463,7 +471,11 @@ class DinoApp {
     });
 
     window.addEventListener('keyup', (e) => {
-      if (['ArrowDown', 'KeyS'].includes(e.code)) {
+      if (['Space', 'ArrowUp', 'KeyW'].includes(e.code)) {
+        e.preventDefault();
+        this.localEngine.handleInput(DinoAction.JUMP_END);
+        this.sendStateNow();
+      } else if (['ArrowDown', 'KeyS'].includes(e.code)) {
         e.preventDefault();
         this.localEngine.handleInput(DinoAction.DUCK_END);
         this.sendStateNow();
@@ -474,6 +486,12 @@ class DinoApp {
     this.touchJumpBtn.addEventListener('touchstart', (e) => {
       e.preventDefault();
       this.localEngine.handleInput(DinoAction.JUMP);
+      this.sendStateNow();
+    });
+
+    this.touchJumpBtn.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      this.localEngine.handleInput(DinoAction.JUMP_END);
       this.sendStateNow();
     });
 
@@ -493,6 +511,12 @@ class DinoApp {
     canvas.addEventListener('touchstart', (e) => {
       e.preventDefault();
       this.localEngine.handleInput(DinoAction.JUMP);
+      this.sendStateNow();
+    });
+
+    canvas.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      this.localEngine.handleInput(DinoAction.JUMP_END);
       this.sendStateNow();
     });
   }
@@ -534,6 +558,8 @@ class DinoApp {
     this.isMatchRunning = false;
     this.countdownEndTime = null;
     this.winnerAnnouncement = null;
+    this.physicsAccumulator = 0;
+    this.lastFrameTime = 0;
   }
 
   private showError(msg: string): void {
@@ -546,7 +572,12 @@ class DinoApp {
   }
 
   private loop(currentTime: number): void {
-    this.previewAnimTimer += 1 / 60;
+    if (!this.lastFrameTime) this.lastFrameTime = currentTime;
+    let dt = (currentTime - this.lastFrameTime) / 1000;
+    this.lastFrameTime = currentTime;
+    if (dt > 0.2) dt = 0.2; // Guard against tab background throttling spikes
+
+    this.previewAnimTimer += dt;
     this.renderSkinPreview();
 
     if (this.gameScreen.classList.contains('active')) {
@@ -570,16 +601,22 @@ class DinoApp {
       }
 
       if (this.isMatchRunning) {
-        this.localEngine.update(1 / 60);
+        this.physicsAccumulator += dt;
+        while (this.physicsAccumulator >= this.FIXED_DELTA) {
+          this.localEngine.update(this.FIXED_DELTA);
 
-        if (this.isBotMode && this.bot) {
-          this.bot.update(1 / 60);
+          if (this.isBotMode && this.bot) {
+            this.bot.update(this.FIXED_DELTA);
 
-          if (this.bot.engine.isGameOver && !this.localEngine.isGameOver) {
-            this.winnerAnnouncement = '¡VICTORIA! El Bot ha chocado';
-            this.rematchBar.classList.remove('hidden');
+            if (this.bot.engine.isGameOver && !this.localEngine.isGameOver) {
+              this.winnerAnnouncement = '¡VICTORIA! El Bot ha chocado';
+              this.rematchBar.classList.remove('hidden');
+            }
           }
-        } else {
+          this.physicsAccumulator -= this.FIXED_DELTA;
+        }
+
+        if (!this.isBotMode) {
           // P2P telemetry broadcast
           if (Date.now() - this.lastNetworkSendTime > 33) {
             this.sendStateNow();
@@ -635,7 +672,8 @@ class DinoApp {
         localVisual,
         remoteVisual,
         countdownText,
-        this.winnerAnnouncement
+        this.winnerAnnouncement,
+        this.localEngine.activeEvent
       );
     }
 
