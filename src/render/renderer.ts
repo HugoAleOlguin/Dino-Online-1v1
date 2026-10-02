@@ -1,7 +1,6 @@
 import { SpriteManager, SKINS, SkinAnimationSet, CHROMIUM_SPRITES } from './sprites';
 import { GameEngine } from '../core/game-engine';
 import { Obstacle } from '../core/obstacles';
-import { MatchEvent } from '../core/events';
 
 export interface PlayerVisualState {
   name: string;
@@ -49,7 +48,6 @@ export class DoubleTrackRenderer {
     localPlayer: PlayerVisualState,
     remotePlayer: PlayerVisualState | null,
     overlay: MatchOverlayState | null = null,
-    activeEvent: MatchEvent | null = null,
     isRivalEliminated: boolean = false
   ): void {
     const ctx = this.ctx;
@@ -59,12 +57,7 @@ export class DoubleTrackRenderer {
     ctx.fillStyle = '#202124';
     ctx.fillRect(0, 0, this.vWidth, this.vHeight);
 
-    // 2. Active Event Atmospheric Visual Effects (underneath tracks)
-    if (activeEvent) {
-      this.drawEventAtmosphere(activeEvent, localEngine.distance);
-    }
-
-    // 3. Draw Track 1 (Top Track - Player 1 / Local Player)
+    // 2. Draw Track 1 (Top Track - Player 1 / Local Player)
     const isCountdown = overlay?.type === 'COUNTDOWN';
     this.drawTrack(
       this.track1GroundY,
@@ -87,14 +80,10 @@ export class DoubleTrackRenderer {
       ctx.fillText('🏆 ¡RIVAL ELIMINADO! CORRE POR EL RÉCORD 🏆', this.vWidth / 2, this.track1GroundY - 145);
     }
 
-    // 4. Middle Divider with Active Event Banner or Minimalist Line
-    if (activeEvent) {
-      this.drawEventBanner(activeEvent, localEngine.distance);
-    } else {
-      this.drawDivider();
-    }
+    // 3. Middle Divider (Subtle minimalist line)
+    this.drawDivider();
 
-    // 5. Draw Track 2 (Bottom Track - Player 2 / Rival or Bot)
+    // 4. Draw Track 2 (Bottom Track - Player 2 / Rival or Bot)
     if (remotePlayer) {
       const isBot = remotePlayer.name.includes('BOT');
       this.drawTrack(
@@ -111,7 +100,7 @@ export class DoubleTrackRenderer {
       this.drawWaitingTrack(this.track2GroundY);
     }
 
-    // 6. Overlays: Asymmetric Game Over / Spectating / Victory
+    // 5. Overlays: Asymmetric Game Over / Spectating / Victory
     if (overlay) {
       switch (overlay.type) {
         case 'COUNTDOWN':
@@ -143,132 +132,6 @@ export class DoubleTrackRenderer {
     ctx.lineTo(this.vWidth - 20, 255);
     ctx.stroke();
     ctx.setLineDash([]);
-  }
-
-  private drawEventBanner(event: MatchEvent, currentDistance: number): void {
-    const ctx = this.ctx;
-    const now = performance.now();
-    const pulse = 0.5 + 0.5 * Math.sin(now / 150);
-
-    const bannerW = 560;
-    const bannerH = 28;
-    const bannerX = (this.vWidth - bannerW) / 2;
-    const bannerY = 255 - bannerH / 2;
-
-    // Glowing border and background
-    ctx.fillStyle = '#1e2023';
-    ctx.fillRect(bannerX, bannerY, bannerW, bannerH);
-
-    ctx.strokeStyle = pulse > 0.5 ? '#f1c40f' : '#e67e22';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(bannerX, bannerY, bannerW, bannerH);
-
-    // Event title & description
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 11px "Press Start 2P", monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(event.badge, this.vWidth / 2, bannerY + 11);
-
-    // Remaining distance progress bar
-    const totalDist = Math.max(1, event.endDistance - event.startDistance);
-    const elapsedDist = Math.max(0, Math.min(totalDist, currentDistance - event.startDistance));
-    const remainingRatio = 1 - (elapsedDist / totalDist);
-
-    ctx.fillStyle = 'rgba(241, 196, 15, 0.2)';
-    ctx.fillRect(bannerX + 2, bannerY + bannerH - 4, bannerW - 4, 3);
-
-    ctx.fillStyle = '#f1c40f';
-    ctx.fillRect(bannerX + 2, bannerY + bannerH - 4, (bannerW - 4) * remainingRatio, 3);
-  }
-
-  private drawEventAtmosphere(event: MatchEvent, distance: number): void {
-    const ctx = this.ctx;
-    const now = performance.now();
-    const spriteImg = this.spriteManager.getImage('/offline-sprite-dark.png');
-
-    switch (event.type) {
-      case 'ECLIPSE': {
-        // Deep cosmic darkness tint
-        ctx.fillStyle = 'rgba(10, 8, 18, 0.45)';
-        ctx.fillRect(0, 0, this.vWidth, this.vHeight);
-
-        // Blood-red moon in the sky
-        if (spriteImg) {
-          ctx.drawImage(spriteImg, CHROMIUM_SPRITES.MOON.x, CHROMIUM_SPRITES.MOON.y, 40, 40, 780, 20, 36, 36);
-          ctx.drawImage(spriteImg, CHROMIUM_SPRITES.MOON.x, CHROMIUM_SPRITES.MOON.y, 40, 40, 780, 275, 36, 36);
-        }
-        // Twinkling stars
-        ctx.fillStyle = '#ffffff';
-        const stars = [
-          { x: 120, y: 40 }, { x: 340, y: 65 }, { x: 580, y: 30 }, { x: 710, y: 80 },
-          { x: 220, y: 295 }, { x: 450, y: 320 }, { x: 670, y: 285 }
-        ];
-        stars.forEach((s, idx) => {
-          const starAlpha = 0.3 + 0.7 * Math.abs(Math.sin((now / 300) + idx));
-          ctx.fillStyle = `rgba(255, 255, 255, ${starAlpha})`;
-          ctx.fillRect(s.x, s.y, 2, 2);
-        });
-        break;
-      }
-
-      case 'METEOR_SHOWER': {
-        // Diagonal blazing shooting meteors
-        ctx.strokeStyle = '#e67e22';
-        ctx.lineWidth = 2;
-        for (let i = 0; i < 6; i++) {
-          const mProgress = ((now / 2 + i * 200) % 1000) / 1000;
-          const mx = (i * 180 + mProgress * 400) % (this.vWidth + 200) - 100;
-          const my = mProgress * 220;
-          ctx.beginPath();
-          ctx.moveTo(mx, my);
-          ctx.lineTo(mx - 35, my - 25);
-          ctx.stroke();
-
-          // Second track meteors
-          ctx.beginPath();
-          ctx.moveTo(mx + 40, my + 250);
-          ctx.lineTo(mx + 5, my + 225);
-          ctx.stroke();
-        }
-        break;
-      }
-
-      case 'SANDSTORM': {
-        // Fast horizontal howling wind and dust
-        ctx.fillStyle = 'rgba(230, 180, 100, 0.18)';
-        ctx.fillRect(0, 0, this.vWidth, this.vHeight);
-        ctx.fillStyle = 'rgba(240, 200, 120, 0.4)';
-        for (let i = 0; i < 20; i++) {
-          const sx = (this.vWidth - ((now * 0.8 + i * 85) % (this.vWidth + 50)));
-          const sy = (i * 28) % this.vHeight;
-          ctx.fillRect(sx, sy, 22, 2);
-        }
-        break;
-      }
-
-      case 'LOW_GRAVITY': {
-        // Floating cosmic motes rising upwards
-        ctx.fillStyle = 'rgba(100, 200, 255, 0.5)';
-        for (let i = 0; i < 14; i++) {
-          const fx = (i * 72 + Math.sin(now / 500 + i) * 20) % this.vWidth;
-          const fy = (this.vHeight - ((now * 0.05 + i * 40) % this.vHeight));
-          ctx.fillRect(fx, fy, 3, 3);
-        }
-        break;
-      }
-
-      case 'TURBO_SPRINT': {
-        // Hypersonic speed lines trailing horizontally
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
-        for (let i = 0; i < 12; i++) {
-          const lx = ((now * 1.5 + i * 95) % (this.vWidth + 100)) - 80;
-          const ly = 50 + (i * 38) % (this.vHeight - 100);
-          ctx.fillRect(lx, ly, 45, 2);
-        }
-        break;
-      }
-    }
   }
 
   private drawTrack(

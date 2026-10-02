@@ -85,9 +85,13 @@
               </div>
               <p id="copy-feedback" class="feedback-msg hidden">✓ ¡Enlace copiado al portapapeles!</p>
 
-              <div class="waiting-indicator">
+              <div id="host-status-box" class="waiting-indicator">
                 <span class="pulsing-dot"></span> Esperando a que el rival entre con el enlace...
               </div>
+
+              <button id="host-start-btn" class="classic-btn classic-btn-primary hidden" style="margin-top: 12px; width: 100%;">
+                ▶ INICIAR PARTIDA (5s)
+              </button>
 
               <button id="cancel-room-btn" class="classic-btn btn-back">← VOLVER AL MENÚ</button>
             </div>
@@ -100,6 +104,21 @@
                 <button id="join-room-confirm-btn" class="classic-btn classic-btn-primary">ENTRAR</button>
               </div>
               <button id="cancel-join-btn" class="classic-btn btn-back">← VOLVER AL MENÚ</button>
+            </div>
+
+            <!-- VIEW 4: Guest in Room (Waiting for host to start!) -->
+            <div id="guest-room-view" class="room-panel hidden">
+              <div class="panel-header">
+                <span class="panel-label">SALA:</span>
+                <span id="guest-display-room-code" class="code-badge">----</span>
+              </div>
+              <div id="guest-status-box" class="waiting-indicator">
+                <span class="pulsing-dot"></span> ¡Conectado al Host!
+              </div>
+              <p class="panel-desc" style="color: #f1c40f; margin-top: 10px; font-size: 11px;">
+                Personaliza tu nombre, color y skin a la izquierda. El host iniciará la partida cuando ambos estén listos.
+              </p>
+              <button id="cancel-guest-btn" class="classic-btn btn-back">← SALIR DE LA SALA</button>
             </div>
 
             <div id="error-message" class="alert-box hidden"></div>

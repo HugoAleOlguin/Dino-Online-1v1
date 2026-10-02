@@ -8,6 +8,7 @@ export interface PlayerProfile {
 
 export type NetMessage =
   | { type: 'HANDSHAKE'; profile: PlayerProfile }
+  | { type: 'PROFILE_UPDATE'; profile: PlayerProfile }
   | { type: 'START_GAME'; seed: number; startTimestamp: number }
   | {
       type: 'STATE';
@@ -27,6 +28,7 @@ export type NetMessage =
 export interface P2PEvents {
   onConnected: (remoteProfile: PlayerProfile) => void;
   onDisconnected: () => void;
+  onProfileUpdated?: (profile: PlayerProfile) => void;
   onStartGame: (seed: number, startTimestamp: number) => void;
   onRemoteState: (state: {
     y: number;
@@ -59,8 +61,12 @@ export class P2PManager {
   setLocalProfile(profile: PlayerProfile): void {
     this.localProfile = profile;
     if (this.connection && this.connection.open) {
-      this.send({ type: 'HANDSHAKE', profile });
+      this.send({ type: 'PROFILE_UPDATE', profile });
     }
+  }
+
+  get isConnected(): boolean {
+    return !!(this.connection && this.connection.open);
   }
 
   /**
@@ -162,6 +168,12 @@ export class P2PManager {
     switch (msg.type) {
       case 'HANDSHAKE':
         this.events.onConnected(msg.profile);
+        break;
+
+      case 'PROFILE_UPDATE':
+        if (this.events.onProfileUpdated) {
+          this.events.onProfileUpdated(msg.profile);
+        }
         break;
 
       case 'START_GAME':

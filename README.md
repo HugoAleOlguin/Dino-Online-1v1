@@ -31,7 +31,7 @@
 │       ▼ TÚ (P1) ▼                                                      │
 │        🦖            🌵                  🌵🌵               🦅         │
 │  ════════════════════════════════════════════════════════════════════  │
-│  ────────── [ 🌘 EVENTO: ECLIPSE SOLAR - VISIBILIDAD REDUCIDA ] ────── │
+│  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - │
 │  ════════════════════════════════════════════════════════════════════  │
 │    PISTA RIVAL (P2): HUGO                         00394 m              │
 │                                                                        │
@@ -46,6 +46,14 @@
 ### 🎯 0 ms de Input Latency (Local Authority)
 A diferencia de los juegos multijugador con servidores lentos que generan retardo al presionar teclas, aquí **el motor de física corre al 100% de manera local e instantánea** en tu navegador. Tus saltos y agachadas responden en el microsegundo exacto. La sincronización con el rival ocurre vía **WebRTC DataChannels** punto a punto (Peer-to-Peer).
 
+### 👥 Sala de Espera y Control de Inicio por el Host
+- Al compartir tu enlace o código, el rival entra a la sala de espera sin iniciar la partida automáticamente.
+- **Personalización Completa**: Ambos jugadores pueden ajustar su nombre, color y skin con tranquilidad.
+- **Inicio Exclusivo del Host**: El anfitrión decide cuándo pulsar **▶ INICIAR PARTIDA**, activando una **cuenta regresiva de 5 segundos** sincronizada para que ambos jugadores se preparen.
+
+### 🔄 Anti-Freeze en Pestañas en Segundo Plano (Web Worker Ticker)
+- Se incluye un worker dedicado que mantiene el ciclo de física activo a 60 ticks/s incluso si uno de los jugadores tiene la pestaña en segundo plano o minimizada, evitando congelamientos al inicio de la carrera.
+
 ### 💀 Mecánica Asimétrica de Muerte y Modo Espectador
 - Si **tú chocas primero**: Tu carrera termina y tu pantalla entra en **Modo Espectador** (`GAME OVER` únicamente en tu carril), permitiéndote ver en vivo y en directo cómo tu rival sigue esquivando obstáculos hasta que cometa un error.
 - El **jugador que sobrevive**: ¡Sigue corriendo libremente sin interrupciones ni pantallas molestas! Puede romper su récord y estirar la ventaja. Al chocar finalmente, se le despliega su gloriosa **Pantalla de Victoria**.
@@ -56,16 +64,6 @@ A diferencia de los juegos multijugador con servidores lentos que generan retard
 - **Salto Variable (Short Hop)**: Toca rápido `Espacio` para un salto bajo y ágil; mantén presionado para alcanzar el arco completo del salto.
 - **Caída Rápida (Fast Fall)**: Presiona `Flecha Abajo` en el aire para descender inmediatamente al suelo a máxima velocidad.
 - **Fixed Timestep Accumulator (60 FPS)**: La simulación está desacoplada de la tasa de refresco de la pantalla. Ya no se acelera a 2x o 3x en monitores de 120Hz, 144Hz o 240Hz.
-
-### 🎲 Eventos Aleatorios Deterministas Sincronizados
-Ambos corredores comparten la misma semilla pseudoaleatoria (`Mulberry32 PRNG`), asegurando que ambos enfrenten exactamente los mismos eventos a los mismos metros:
-| Evento | Efecto Jugable | Efecto Visual |
-| :--- | :--- | :--- |
-| **🌘 Eclipse Solar** | Desafío visual | Tinte cósmico profundo, luna roja de sangre y estrellas titilantes |
-| **☄️ Lluvia de Meteoritos** | Concentración extrema | Estelas incandescentes cayendo velozmente en diagonal |
-| **🌪️ Tormenta de Arena** | Velocidad +40 px/s | Ráfagas de viento y arena desértica barriendo la pista |
-| **🚀 Gravedad Lunar** | Gravedad -30% (Saltos flotantes) | Destellos lunares y partículas celestes ascendentes |
-| **⚡ Turbo Sprint** | Aceleración súbita (+100 px/s) | Líneas cinéticas de hipervelocidad detrás del dino |
 
 ### 🎨 Personalización y Skins Oficiales de la Comunidad
 - **7 Skins HD Sin Fondo**:

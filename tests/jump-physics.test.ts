@@ -1,46 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { EventManager } from '../src/core/events';
 import { Dino, DinoAction } from '../src/core/physics';
-import { GameEngine } from '../src/core/game-engine';
-
-describe('EventManager (Deterministic In-Game Random Events)', () => {
-  it('generates deterministic schedule of 5 events based on seed', () => {
-    const seed = 54321;
-    const em1 = new EventManager(seed);
-    const em2 = new EventManager(seed);
-
-    expect(em1.events.length).toBe(5);
-    expect(em1.events).toEqual(em2.events);
-  });
-
-  it('correctly activates and deactivates events based on distance', () => {
-    const em = new EventManager(12345);
-    const firstEvent = em.events[0];
-
-    // Before first event
-    expect(em.getActiveEvent(firstEvent.startDistance - 10)).toBeNull();
-
-    // In the middle of first event
-    const midDist = (firstEvent.startDistance + firstEvent.endDistance) / 2;
-    const active = em.getActiveEvent(midDist);
-    expect(active).not.toBeNull();
-    expect(active?.type).toBe(firstEvent.type);
-
-    // After first event (before second event)
-    expect(em.getActiveEvent(firstEvent.endDistance + 50)).toBeNull();
-  });
-
-  it('influences dino gravity when LOW_GRAVITY event is active', () => {
-    const engine = new GameEngine(12345);
-    // Find if or when LOW_GRAVITY is scheduled
-    const lowGravEvent = engine.eventManager.events.find((e) => e.type === 'LOW_GRAVITY');
-    if (lowGravEvent) {
-      engine.distance = (lowGravEvent.startDistance + lowGravEvent.endDistance) / 2;
-      engine.update(1 / 60);
-      expect(engine.dino.gravityMultiplier).toBe(0.70);
-    }
-  });
-});
 
 describe('Variable Jump Height & Fast Drop Feel', () => {
   it('short hops when JUMP_END is released early', () => {

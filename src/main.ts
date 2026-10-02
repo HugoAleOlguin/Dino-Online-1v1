@@ -70,6 +70,7 @@ class DinoApp {
   private roomMenuView = document.getElementById('room-menu-view')!;
   private hostRoomView = document.getElementById('host-room-view')!;
   private joinRoomView = document.getElementById('join-room-view')!;
+  private guestRoomView = document.getElementById('guest-room-view')!;
 
   private createRoomBtn = document.getElementById('create-room-btn')!;
   private showJoinBtn = document.getElementById('show-join-btn')!;
@@ -79,11 +80,17 @@ class DinoApp {
   private roomLinkInput = document.getElementById('room-link-input') as HTMLInputElement;
   private copyLinkBtn = document.getElementById('copy-link-btn')!;
   private copyFeedback = document.getElementById('copy-feedback')!;
+  private hostStatusBox = document.getElementById('host-status-box')!;
+  private hostStartBtn = document.getElementById('host-start-btn') as HTMLButtonElement;
   private cancelRoomBtn = document.getElementById('cancel-room-btn')!;
 
   private roomCodeInput = document.getElementById('room-code-input') as HTMLInputElement;
   private joinRoomConfirmBtn = document.getElementById('join-room-confirm-btn')!;
   private cancelJoinBtn = document.getElementById('cancel-join-btn')!;
+
+  private guestDisplayRoomCode = document.getElementById('guest-display-room-code')!;
+  private guestStatusBox = document.getElementById('guest-status-box')!;
+  private cancelGuestBtn = document.getElementById('cancel-guest-btn')!;
 
   private errorBanner = document.getElementById('error-message')!;
 
@@ -104,6 +111,9 @@ class DinoApp {
   private lastFrameTime = 0;
   private physicsAccumulator = 0;
   private readonly FIXED_DELTA = 1 / 60;
+
+  // Background Web Worker ticker to keep physics running when tab is in background
+  private tickerWorker: Worker | null = null;
 
   constructor() {
     this.spriteManager = new SpriteManager();
@@ -135,17 +145,83 @@ class DinoApp {
     // 5. Setup UI & Listeners
     this.setupUI();
     this.setupInputListeners();
+    this.setupBackgroundWorker();
 
     // 6. Check URL query param for automatic room joining (?room=ABCD)
     const urlParams = new URLSearchParams(window.location.search);
     const roomParam = urlParams.get('room');
     if (roomParam) {
-      this.roomCodeInput.value = roomParam.trim().toUpperCase();
-      this.joinRoom(roomParam.trim());
+      const code = roomParam.trim().toUpperCase();
+      this.roomCodeInput.value = code;
+      this.joinRoom(code);
     }
 
     // 7. Start Main Loop
     requestAnimationFrame((t) => this.loop(t));
+  }
+
+  private setupBackgroundWorker(): void {
+    // Background Web Worker ticker: Chrome never throttles Web Workers even in background tabs
+    try {
+      const workerBlob = new Blob(
+        [
+          `
+          let timer = null;
+          self.onmessage = function(e) {
+            if (e.data === 'start') {
+              if (!timer) timer = setInterval(() => self.postMessage('tick'), 1000 / 60);
+            } else if (e.data === 'stop') {
+              if (timer) { clearInterval(timer); timer = null; }
+            }
+          };
+          `,
+        ],
+        { type: 'application/javascript' }
+      );
+      this.tickerWorker = new Worker(URL.createObjectURL(workerBlob));
+      this.tickerWorker.onmessage = () => {
+        // Only step via worker if the tab is hidden (when requestAnimationFrame pauses)
+        if (document.hidden && this.isMatchRunning) {
+          this.stepSimulation(1 / 60);
+        }
+      };
+      this.tickerWorker.postMessage('start');
+    } catch (e) {
+      console.warn('Background worker ticker unavailable, falling back to window timers', e);
+    }
+
+    // Handle tab visibility change
+    document.addEventListener('visibilitychange', () => {
+      this.lastFrameTime = performance.now();
+      this.physicsAccumulator = 0;
+
+      if (!document.hidden) {
+        // Tab gained focus: check if countdown completed while backgrounded
+        if (this.countdownEndTime !== null && Date.now() >= this.countdownEndTime) {
+          this.isMatchRunning = true;
+          this.countdownEndTime = null;
+        }
+      }
+    });
+  }
+
+  private stepSimulation(dt: number): void {
+    if (!this.isMatchRunning || this.localEngine.isGameOver) return;
+    this.localEngine.update(dt);
+
+    if (this.isBotMode && this.bot) {
+      this.bot.update(dt);
+      if (this.bot.engine.isGameOver && this.botDeathDistance === null) {
+        this.botDeathDistance = Math.floor(this.bot.engine.distance);
+        if (this.localEngine.isGameOver && this.localDeathDistance !== null) {
+          this.evaluateMatchWinner();
+        }
+      }
+    } else {
+      if (Date.now() - this.lastNetworkSendTime > 33) {
+        this.sendStateNow();
+      }
+    }
   }
 
   private setupEngineCallbacks(): void {
@@ -154,28 +230,9 @@ class DinoApp {
 
       if (this.isBotMode && this.bot) {
         if (this.bot.engine.isGameOver && this.botDeathDistance !== null) {
-          // Bot already crashed earlier, player survived longer -> VICTORY!
-          if (this.localDeathDistance > this.botDeathDistance) {
-            this.matchOverlay = {
-              type: 'VICTORY',
-              myDistance: this.localDeathDistance,
-              rivalDistance: this.botDeathDistance,
-              rivalName: 'BOT',
-            };
-          } else if (this.localDeathDistance < this.botDeathDistance) {
-            this.matchOverlay = {
-              type: 'DEFEAT',
-              myDistance: this.localDeathDistance,
-              rivalDistance: this.botDeathDistance,
-              rivalName: 'BOT',
-            };
-          } else {
-            this.matchOverlay = { type: 'TIE', distance: this.localDeathDistance };
-          }
-          this.rematchBar.classList.remove('hidden');
+          this.evaluateMatchWinner();
         } else {
-          // Player crashed, but bot is still running!
-          // Only local player gets Game Over, bot continues!
+          // Local crashed, but bot is still running -> spectator mode!
           this.matchOverlay = {
             type: 'LOCAL_CRASHED_SPECTATING',
             myDistance: this.localDeathDistance,
@@ -188,25 +245,7 @@ class DinoApp {
       this.p2p.send({ type: 'DIED', score, distance: this.localDeathDistance });
 
       if (this.remoteState.isDead && this.remoteDeathDistance !== null) {
-        // Rival had already died earlier! Player survived longer and now crashed -> VICTORY!
-        if (this.localDeathDistance > this.remoteDeathDistance) {
-          this.matchOverlay = {
-            type: 'VICTORY',
-            myDistance: this.localDeathDistance,
-            rivalDistance: this.remoteDeathDistance,
-            rivalName: this.remoteProfile?.name || 'Rival',
-          };
-        } else if (this.localDeathDistance < this.remoteDeathDistance) {
-          this.matchOverlay = {
-            type: 'DEFEAT',
-            myDistance: this.localDeathDistance,
-            rivalDistance: this.remoteDeathDistance,
-            rivalName: this.remoteProfile?.name || 'Rival',
-          };
-        } else {
-          this.matchOverlay = { type: 'TIE', distance: this.localDeathDistance };
-        }
-        this.rematchBar.classList.remove('hidden');
+        this.evaluateMatchWinner();
       } else {
         // Local crashed first! Remote is still running!
         // Local gets Game Over & spectator mode. Remote continues playing!
@@ -218,17 +257,57 @@ class DinoApp {
     };
   }
 
+  private evaluateMatchWinner(): void {
+    const isBot = this.isBotMode;
+    const rivalName = isBot ? 'BOT' : this.remoteProfile?.name || 'Rival';
+    const rivalDist = isBot ? this.botDeathDistance || 0 : this.remoteDeathDistance || 0;
+    const myDist = this.localDeathDistance || 0;
+
+    if (myDist > rivalDist) {
+      this.matchOverlay = {
+        type: 'VICTORY',
+        myDistance: myDist,
+        rivalDistance: rivalDist,
+        rivalName,
+      };
+    } else if (myDist < rivalDist) {
+      this.matchOverlay = {
+        type: 'DEFEAT',
+        myDistance: myDist,
+        rivalDistance: rivalDist,
+        rivalName,
+      };
+    } else {
+      this.matchOverlay = { type: 'TIE', distance: myDist };
+    }
+    this.rematchBar.classList.remove('hidden');
+  }
+
   private setupP2P(): void {
     this.p2p = new P2PManager(this.profile, {
       onConnected: (remoteProfile) => {
         this.remoteProfile = remoteProfile;
-        this.showGameScreen();
 
         if (this.p2p.isHost) {
-          const seed = Math.floor(Math.random() * 1000000);
-          const startTimestamp = Date.now() + 3200;
-          this.p2p.send({ type: 'START_GAME', seed, startTimestamp });
-          this.startCountdown(seed, startTimestamp);
+          // Host remains in lobby waiting room and can start when ready!
+          this.hostStatusBox.innerHTML = `✓ ¡Rival conectado: <strong style="color: ${remoteProfile.color || '#fff'}">${remoteProfile.name}</strong>!`;
+          this.hostStartBtn.classList.remove('hidden');
+        } else {
+          // Guest is in waiting room panel customizing profile
+          this.roomMenuView.classList.add('hidden');
+          this.joinRoomView.classList.add('hidden');
+          this.guestRoomView.classList.remove('hidden');
+          this.guestDisplayRoomCode.textContent = this.p2p.roomId || this.roomCodeInput.value || 'SALA';
+          this.guestStatusBox.innerHTML = `✓ ¡Conectado al Host: <strong style="color: ${remoteProfile.color || '#fff'}">${remoteProfile.name}</strong>!`;
+        }
+      },
+
+      onProfileUpdated: (remoteProfile) => {
+        this.remoteProfile = remoteProfile;
+        if (this.p2p.isHost) {
+          this.hostStatusBox.innerHTML = `✓ ¡Rival conectado: <strong style="color: ${remoteProfile.color || '#fff'}">${remoteProfile.name}</strong>!`;
+        } else {
+          this.guestStatusBox.innerHTML = `✓ ¡Conectado al Host: <strong style="color: ${remoteProfile.color || '#fff'}">${remoteProfile.name}</strong>!`;
         }
       },
 
@@ -238,6 +317,7 @@ class DinoApp {
       },
 
       onStartGame: (seed, startTimestamp) => {
+        this.showGameScreen();
         this.startCountdown(seed, startTimestamp);
       },
 
@@ -255,34 +335,16 @@ class DinoApp {
         this.remoteState.distance = this.remoteDeathDistance;
 
         if (this.localEngine.isGameOver && this.localDeathDistance !== null) {
-          // Local had already died earlier and was spectating!
-          // Now rival has also finished their run.
-          if (this.localDeathDistance > this.remoteDeathDistance) {
-            this.matchOverlay = {
-              type: 'VICTORY',
-              myDistance: this.localDeathDistance,
-              rivalDistance: this.remoteDeathDistance,
-              rivalName: this.remoteProfile?.name || 'Rival',
-            };
-          } else if (this.localDeathDistance < this.remoteDeathDistance) {
-            this.matchOverlay = {
-              type: 'DEFEAT',
-              myDistance: this.localDeathDistance,
-              rivalDistance: this.remoteDeathDistance,
-              rivalName: this.remoteProfile?.name || 'Rival',
-            };
-          } else {
-            this.matchOverlay = { type: 'TIE', distance: this.localDeathDistance };
-          }
-          this.rematchBar.classList.remove('hidden');
+          // Both are finished!
+          this.evaluateMatchWinner();
         } else {
           // Local player is STILL ALIVE!
-          // Rival died, but local continues playing without any interruption!
+          // Rival died, local continues playing without any interruption!
         }
       },
 
       onRematchRequested: (seed) => {
-        const startTimestamp = Date.now() + 3000;
+        const startTimestamp = Date.now() + 5200; // 5-second countdown!
         this.p2p.send({ type: 'START_GAME', seed, startTimestamp });
         this.startCountdown(seed, startTimestamp);
       },
@@ -323,7 +385,7 @@ class DinoApp {
     this.countdownEndTime = startTimestamp;
     this.isMatchRunning = false;
     this.physicsAccumulator = 0;
-    this.lastFrameTime = 0;
+    this.lastFrameTime = performance.now();
   }
 
   private setupUI(): void {
@@ -389,12 +451,24 @@ class DinoApp {
         // Switch panel cleanly
         this.roomMenuView.classList.add('hidden');
         this.hostRoomView.classList.remove('hidden');
+        this.hostStartBtn.classList.add('hidden');
+        this.hostStatusBox.innerHTML = '<span class="pulsing-dot"></span> Esperando a que el rival entre con el enlace...';
       } catch {
         this.showError('No se pudo crear la sala. Verifica la conexión.');
       }
     });
 
-    // 4. Panel Navigation: Show Join Room View
+    // 5. Host clicks Start Game button
+    this.hostStartBtn.addEventListener('click', () => {
+      if (!this.p2p.isHost) return;
+      const seed = Math.floor(Math.random() * 1000000);
+      const startTimestamp = Date.now() + 5200; // 5-second countdown!
+      this.p2p.send({ type: 'START_GAME', seed, startTimestamp });
+      this.showGameScreen();
+      this.startCountdown(seed, startTimestamp);
+    });
+
+    // 6. Panel Navigation: Show Join Room View
     this.showJoinBtn.addEventListener('click', () => {
       this.hideError();
       this.roomMenuView.classList.add('hidden');
@@ -402,22 +476,24 @@ class DinoApp {
       this.roomCodeInput.focus();
     });
 
-    // 5. Back Button (from Host view)
+    // 7. Back Button (from Host view)
     this.cancelRoomBtn.addEventListener('click', () => {
-      this.p2p.cleanup();
-      this.hostRoomView.classList.add('hidden');
-      this.roomMenuView.classList.remove('hidden');
-      this.hideError();
+      this.exitToLobby();
     });
 
-    // 6. Back Button (from Join view)
+    // 8. Back Button (from Join view)
     this.cancelJoinBtn.addEventListener('click', () => {
       this.joinRoomView.classList.add('hidden');
       this.roomMenuView.classList.remove('hidden');
       this.hideError();
     });
 
-    // 7. Confirm Join Button
+    // 9. Cancel/Leave from Guest waiting view
+    this.cancelGuestBtn.addEventListener('click', () => {
+      this.exitToLobby();
+    });
+
+    // 10. Confirm Join Button
     this.joinRoomConfirmBtn.addEventListener('click', () => {
       const code = this.roomCodeInput.value.trim().toUpperCase();
       if (!code) {
@@ -427,7 +503,7 @@ class DinoApp {
       this.joinRoom(code);
     });
 
-    // 8. Bot Mode: Play Against Bot
+    // 11. Bot Mode: Play Against Bot
     this.playBotBtn.addEventListener('click', () => {
       this.hideError();
       this.isBotMode = true;
@@ -439,29 +515,29 @@ class DinoApp {
       this.pingText.textContent = 'LOCAL: 0ms';
 
       this.showGameScreen();
-      this.startCountdown(seed, Date.now() + 2500);
+      this.startCountdown(seed, Date.now() + 5200); // 5-second countdown!
     });
 
-    // 9. Copy Link Button
+    // 12. Copy Link Button
     this.copyLinkBtn.addEventListener('click', () => {
       navigator.clipboard.writeText(this.roomLinkInput.value);
       this.copyFeedback.classList.remove('hidden');
       setTimeout(() => this.copyFeedback.classList.add('hidden'), 2500);
     });
 
-    // 10. Exit Game Button
+    // 13. Exit Game Button
     this.exitGameBtn.addEventListener('click', () => {
       this.exitToLobby();
     });
 
-    // 11. Rematch Button
+    // 14. Rematch Button
     this.rematchBtn.addEventListener('click', () => {
       const newSeed = Math.floor(Math.random() * 1000000);
+      const startTimestamp = Date.now() + 5200; // 5-second countdown!
       if (this.isBotMode && this.bot) {
-        this.startCountdown(newSeed, Date.now() + 2500);
+        this.startCountdown(newSeed, startTimestamp);
       } else {
         this.p2p.send({ type: 'REMATCH_REQUEST', seed: newSeed });
-        const startTimestamp = Date.now() + 3000;
         this.p2p.send({ type: 'START_GAME', seed: newSeed, startTimestamp });
         this.startCountdown(newSeed, startTimestamp);
       }
@@ -472,10 +548,19 @@ class DinoApp {
     this.hideError();
     this.isBotMode = false;
     this.gameRoomCode.textContent = code;
+
+    // Show guest waiting room panel immediately
+    this.roomMenuView.classList.add('hidden');
+    this.joinRoomView.classList.add('hidden');
+    this.guestRoomView.classList.remove('hidden');
+    this.guestDisplayRoomCode.textContent = code;
+    this.guestStatusBox.innerHTML = '<span class="pulsing-dot"></span> Conectando a la sala...';
+
     try {
       await this.p2p.joinRoom(code);
     } catch {
       this.showError('No se pudo conectar a la sala.');
+      this.exitToLobby();
     }
   }
 
@@ -608,7 +693,11 @@ class DinoApp {
     // Return to main menu panel
     this.hostRoomView.classList.add('hidden');
     this.joinRoomView.classList.add('hidden');
+    this.guestRoomView.classList.add('hidden');
     this.roomMenuView.classList.remove('hidden');
+
+    this.hostStartBtn.classList.add('hidden');
+    this.hostStatusBox.innerHTML = '<span class="pulsing-dot"></span> Esperando a que el rival entre con el enlace...';
 
     this.rematchBar.classList.add('hidden');
     this.isMatchRunning = false;
@@ -642,16 +731,21 @@ class DinoApp {
     if (this.gameScreen.classList.contains('active')) {
       let countdownText: string | null = null;
 
+      // 5-Second Countdown (5, 4, 3, 2, 1, ¡YA!)
       if (this.countdownEndTime !== null) {
         const remainingMs = this.countdownEndTime - Date.now();
-        if (remainingMs > 2000) {
+        if (remainingMs > 4000) {
+          countdownText = '5';
+        } else if (remainingMs > 3000) {
+          countdownText = '4';
+        } else if (remainingMs > 2000) {
           countdownText = '3';
         } else if (remainingMs > 1000) {
           countdownText = '2';
         } else if (remainingMs > 0) {
           countdownText = '1';
         } else if (remainingMs > -600) {
-          countdownText = 'GO';
+          countdownText = '¡YA!';
           this.isMatchRunning = true;
         } else {
           this.countdownEndTime = null;
@@ -659,49 +753,11 @@ class DinoApp {
         }
       }
 
-      if (this.isMatchRunning) {
+      if (this.isMatchRunning && !document.hidden) {
         this.physicsAccumulator += dt;
         while (this.physicsAccumulator >= this.FIXED_DELTA) {
-          this.localEngine.update(this.FIXED_DELTA);
-
-          if (this.isBotMode && this.bot) {
-            this.bot.update(this.FIXED_DELTA);
-
-            if (this.bot.engine.isGameOver && this.botDeathDistance === null) {
-              this.botDeathDistance = Math.floor(this.bot.engine.distance);
-
-              if (this.localEngine.isGameOver && this.localDeathDistance !== null) {
-                // Both are dead now!
-                if (this.localDeathDistance > this.botDeathDistance) {
-                  this.matchOverlay = {
-                    type: 'VICTORY',
-                    myDistance: this.localDeathDistance,
-                    rivalDistance: this.botDeathDistance,
-                    rivalName: 'BOT',
-                  };
-                } else if (this.localDeathDistance < this.botDeathDistance) {
-                  this.matchOverlay = {
-                    type: 'DEFEAT',
-                    myDistance: this.localDeathDistance,
-                    rivalDistance: this.botDeathDistance,
-                    rivalName: 'BOT',
-                  };
-                } else {
-                  this.matchOverlay = { type: 'TIE', distance: this.localDeathDistance };
-                }
-                this.rematchBar.classList.remove('hidden');
-              }
-              // If local player is still alive, local keeps playing!
-            }
-          }
+          this.stepSimulation(this.FIXED_DELTA);
           this.physicsAccumulator -= this.FIXED_DELTA;
-        }
-
-        if (!this.isBotMode) {
-          // P2P telemetry broadcast
-          if (Date.now() - this.lastNetworkSendTime > 33) {
-            this.sendStateNow();
-          }
         }
       }
 
@@ -762,7 +818,6 @@ class DinoApp {
         localVisual,
         remoteVisual,
         currentOverlay,
-        this.localEngine.activeEvent,
         isRivalEliminated
       );
     }

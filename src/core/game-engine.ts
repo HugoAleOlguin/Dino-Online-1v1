@@ -1,6 +1,5 @@
 import { Dino, DinoAction } from './physics';
 import { Obstacle, generateObstaclesForTrack } from './obstacles';
-import { EventManager, MatchEvent } from './events';
 import {
   TREX_COLLISION_BOXES,
   OBSTACLE_COLLISION_BOXES,
@@ -17,8 +16,6 @@ export class GameEngine {
   public seed: number;
   public readonly dino: Dino;
   public obstacles: Obstacle[] = [];
-  public eventManager: EventManager;
-  public activeEvent: MatchEvent | null = null;
 
   public distance: number = 0;
   public speed: number;
@@ -38,7 +35,6 @@ export class GameEngine {
 
     this.dino = new Dino({ xPosition: 60 });
     this.obstacles = generateObstaclesForTrack(seed, this.trackGeneratedUpTo);
-    this.eventManager = new EventManager(seed);
   }
 
   get score(): number {
@@ -53,34 +49,25 @@ export class GameEngine {
   update(dt: number): void {
     if (this.isGameOver) return;
 
-    // 1. Check for active events at current distance
-    this.activeEvent = this.eventManager.getActiveEvent(this.distance);
-    if (this.activeEvent) {
-      this.dino.gravityMultiplier = this.activeEvent.gravityMultiplier;
-    } else {
-      this.dino.gravityMultiplier = 1.0;
-    }
-
-    // 2. Update local dino physics (0ms input latency)
+    // 1. Update local dino physics (0ms input latency)
     this.dino.update(dt);
 
-    // 3. Advance track distance
-    const speedBonus = this.activeEvent ? this.activeEvent.speedBonus : 0;
-    this.distance += (this.speed + speedBonus) * dt;
+    // 2. Advance track distance
+    this.distance += this.speed * dt;
 
-    // 4. Gradual acceleration curve matching Chrome
+    // 3. Gradual acceleration curve matching Chrome
     this.speed = Math.min(
       this.maxSpeed,
       this.initialSpeed + Math.pow(this.distance / 1000, 0.72) * 48
     );
 
-    // 5. Extend obstacles buffer if needed
+    // 4. Extend obstacles buffer if needed
     if (this.distance + 2500 > this.trackGeneratedUpTo) {
       this.trackGeneratedUpTo += 2500;
       this.obstacles = generateObstaclesForTrack(this.seed, this.trackGeneratedUpTo);
     }
 
-    // 6. Pixel-accurate Multi-Box Collision check (Chromium offline.js exact model)
+    // 5. Pixel-accurate Multi-Box Collision check (Chromium offline.js exact model)
     const dinoScreenX = this.dino.x;
     const dinoHeight = this.dino.isDucking ? 30 : 47;
     const dinoScreenY = -dinoHeight - this.dino.y;
@@ -88,39 +75,30 @@ export class GameEngine {
       ? TREX_COLLISION_BOXES.DUCKING
       : TREX_COLLISION_BOXES.RUNNING;
 
-    for (const obstacle of this.obstacles) {
-      const obsScreenX = obstacle.x - this.distance + dinoScreenX;
+    for (const obs of this.obstacles) {
+      const obsScreenX = obs.x - this.distance + dinoScreenX;
+      // Broad-phase early exit
+      if (obsScreenX < -60 || obsScreenX > 160) continue;
 
-      // Phase 1: Fast bounding box discard
-      if (obsScreenX > dinoScreenX + 60) break; // obstacles are sorted by X
-      if (obsScreenX + obstacle.width < dinoScreenX - 5) continue; // passed
+      const obsScreenY = -obs.height - obs.y;
+      const obsBoxes = (OBSTACLE_COLLISION_BOXES as any)[obs.type] || [
+        { x: 0, y: 0, width: obs.width, height: obs.height },
+      ];
 
-      // Phase 2: Multi-box precision check
-      const obsScreenY = -obstacle.height - obstacle.y;
-      let obstacleBoxes = OBSTACLE_COLLISION_BOXES.CACTUS_SMALL;
+      const collided = checkMultiBoxCollision(
+        dinoBoxes,
+        dinoScreenX,
+        dinoScreenY,
+        obsBoxes,
+        obsScreenX,
+        obsScreenY
+      );
 
-      if (obstacle.type === 'CACTUS_LARGE') {
-        obstacleBoxes = OBSTACLE_COLLISION_BOXES.CACTUS_LARGE;
-      } else if (obstacle.type === 'CACTUS_DOUBLE') {
-        obstacleBoxes = OBSTACLE_COLLISION_BOXES.CACTUS_DOUBLE;
-      } else if (obstacle.type.startsWith('PTERODACTYL')) {
-        obstacleBoxes = OBSTACLE_COLLISION_BOXES.PTERODACTYL;
-      }
-
-      if (
-        checkMultiBoxCollision(
-          dinoBoxes,
-          dinoScreenX,
-          dinoScreenY,
-          obstacleBoxes,
-          obsScreenX,
-          obsScreenY
-        )
-      ) {
+      if (collided) {
         this.isGameOver = true;
         this.dino.die();
         if (this.onCollision) {
-          this.onCollision(this.score, Math.floor(this.distance));
+          this.onCollision(this.score, this.distance);
         }
         break;
       }
@@ -135,7 +113,5 @@ export class GameEngine {
     this.dino.reset();
     this.trackGeneratedUpTo = 3000;
     this.obstacles = generateObstaclesForTrack(newSeed, this.trackGeneratedUpTo);
-    this.eventManager = new EventManager(newSeed);
-    this.activeEvent = null;
   }
 }
