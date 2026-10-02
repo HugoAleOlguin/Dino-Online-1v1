@@ -1,0 +1,20 @@
+{
+  "name": "jueguito-online",
+  "version": "1.0.0",
+  "description": "Juego tipo Dino Runner online 1v1 en tiempo real con 0 latencia",
+  "type": "module",
+  "scripts": {
+    "dev": "node ./node_modules/vite/bin/vite.js",
+    "build": "node ./node_modules/typescript/bin/tsc && node ./node_modules/vite/bin/vite.js build",
+    "preview": "node ./node_modules/vite/bin/vite.js preview",
+    "test": "node ./node_modules/vitest/vitest.mjs run"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3"
+  },
+  "dependencies": {
+    "peerjs": "^1.5.5"
+  }
+}

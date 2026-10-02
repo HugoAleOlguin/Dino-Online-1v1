@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Dino 1v1 Online — Duelo Clásico</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="app">
+    <!-- LOBBY SCREEN -->
+    <div id="lobby-screen" class="screen active">
+      <div class="lobby-container">
+        
+        <header class="dino-header">
+          <div class="dino-icon-header">
+            <!-- Authentic pixel art dino silhouette -->
+            <svg width="48" height="48" viewBox="0 0 44 47" fill="#acacac">
+              <path d="M22 0h17v16H22zM1 18h30v9H1zM10 35h14v8H10zM1 24h29v5H1zM5 30h21v4H5zM9 34h15v4H9z" />
+            </svg>
+          </div>
+          <h1 class="main-title">DINO 1v1</h1>
+          <p class="offline-subtitle">Sin conexión a internet &bull; Carrera de Supervivencia</p>
+        </header>
+
+        <div class="lobby-card">
+          <!-- 1. Customization -->
+          <div class="card-column">
+            <h2 class="column-heading">1. JUGADOR</h2>
+
+            <div class="field-block">
+              <label for="player-name">Tu Apodo:</label>
+              <input type="text" id="player-name" maxlength="12" placeholder="Dino" value="Dino">
+            </div>
+
+            <div class="field-block">
+              <label>Color de Nombre:</label>
+              <div id="color-palette" class="color-palette"></div>
+            </div>
+
+            <div class="field-block">
+              <label>Skin:</label>
+              <div class="skin-box">
+                <button type="button" id="skin-prev-btn" class="classic-nav-btn">&lt;</button>
+                <div class="skin-stage">
+                  <canvas id="skin-preview-canvas" width="120" height="120"></canvas>
+                  <span id="skin-name-label" class="skin-caption">T-Rex Clásico</span>
+                </div>
+                <button type="button" id="skin-next-btn" class="classic-nav-btn">&gt;</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. Room Connection -->
+          <div class="card-column">
+            <h2 class="column-heading">2. MULTIJUGADOR</h2>
+
+            <div class="action-stack">
+              <button id="create-room-btn" class="classic-btn classic-btn-primary">
+                CREAR SALA NUEVA
+              </button>
+
+              <div class="separator-line"><span>O</span></div>
+
+              <div class="join-row">
+                <input type="text" id="room-code-input" maxlength="4" placeholder="CÓDIGO" autocomplete="off">
+                <button id="join-room-btn" class="classic-btn">UNIRSE</button>
+              </div>
+            </div>
+
+            <!-- Host Waiting Box -->
+            <div id="waiting-box" class="waiting-card hidden">
+              <p class="waiting-title">SALA CREADA: <span id="display-room-code" class="code-badge">----</span></p>
+              <p class="waiting-desc">Pásale este enlace a tu rival:</p>
+              <div class="link-row">
+                <input type="text" id="room-link-input" readonly>
+                <button id="copy-link-btn" class="classic-btn btn-compact">COPIAR LINK</button>
+              </div>
+              <p id="copy-feedback" class="feedback-msg hidden">¡Enlace copiado!</p>
+              <button id="cancel-room-btn" class="text-link-btn">Cancelar</button>
+            </div>
+
+            <div id="error-message" class="alert-box hidden"></div>
+          </div>
+        </div>
+
+        <footer class="dino-footer">
+          <p>PC: <kbd>Espacio</kbd> / <kbd>&uarr;</kbd> Saltar &bull; <kbd>&darr;</kbd> Agacharse | Móvil: Toca para saltar</p>
+        </footer>
+
+      </div>
+    </div>
+
+    <!-- GAME SCREEN -->
+    <div id="game-screen" class="screen">
+      <div class="game-top-bar">
+        <div class="stat-tag" id="ping-text">PING: --ms</div>
+        <div class="stat-tag">SALA: <span id="game-room-code">----</span></div>
+        <button id="exit-game-btn" class="classic-btn btn-compact">SALIR</button>
+      </div>
+
+      <div class="canvas-frame">
+        <canvas id="game-canvas" width="960" height="540"></canvas>
+      </div>
+
+      <!-- Mobile Touch Controls -->
+      <div id="touch-controls" class="touch-controls">
+        <button id="touch-duck-btn" class="mobile-key">
+          &darr; AGACHAR
+        </button>
+        <button id="touch-jump-btn" class="mobile-key mobile-key-jump">
+          &uarr; SALTAR
+        </button>
+      </div>
+
+      <!-- Rematch Banner -->
+      <div id="rematch-bar" class="rematch-card hidden">
+        <div class="rematch-text">
+          <span class="rematch-headline">CARRERA TERMINADA</span>
+          <span class="rematch-sub">¿Jugar otra partida?</span>
+        </div>
+        <button id="rematch-btn" class="classic-btn classic-btn-primary">REVANCHA</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
