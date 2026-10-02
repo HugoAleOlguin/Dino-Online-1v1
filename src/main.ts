@@ -1,20 +1,19 @@
 import { SpriteManager, SKINS } from './render/sprites';
 import { GameEngine } from './core/game-engine';
 import { DinoAction } from './core/physics';
+import { DinoBot } from './core/bot';
 import { DoubleTrackRenderer, PlayerVisualState } from './render/renderer';
 import { P2PManager, PlayerProfile } from './net/p2p';
 
-// Classic Retro Arcade Palette (No futuristic neon glows)
+// Authentic Chrome Dino Palette
 const COLORS = [
-  '#ffffff', // Classic White (Default P1)
-  '#acacac', // Classic Chrome Dino Gray (Default P2)
-  '#f1c40f', // Retro Warm Gold
+  '#ffffff', // Classic White (P1)
+  '#acacac', // Classic Chrome Dino Gray (P2)
+  '#f1c40f', // Retro Gold
   '#2ecc71', // Classic Green
   '#e74c3c', // Retro Brick Red
   '#e67e22', // Retro Amber
 ];
-
-const SKIN_KEYS = Object.keys(SKINS);
 
 class DinoApp {
   private spriteManager: SpriteManager;
@@ -25,7 +24,7 @@ class DinoApp {
   private profile: PlayerProfile = {
     name: localStorage.getItem('dino_name') || 'Dino',
     color: localStorage.getItem('dino_color') || COLORS[0],
-    skinId: localStorage.getItem('dino_skin') || 'classic',
+    skinId: 'classic',
   };
 
   private remoteProfile: PlayerProfile | null = null;
@@ -38,6 +37,10 @@ class DinoApp {
     score: 0,
     isDead: false,
   };
+
+  // Bot Mode
+  private isBotMode = false;
+  private bot: DinoBot | null = null;
 
   // Game Engine & State
   private localEngine!: GameEngine;
@@ -52,22 +55,30 @@ class DinoApp {
   private nameInput = document.getElementById('player-name') as HTMLInputElement;
   private colorPalette = document.getElementById('color-palette')!;
   private skinPreviewCanvas = document.getElementById('skin-preview-canvas') as HTMLCanvasElement;
-  private skinNameLabel = document.getElementById('skin-name-label')!;
-  private skinPrevBtn = document.getElementById('skin-prev-btn')!;
-  private skinNextBtn = document.getElementById('skin-next-btn')!;
+
+  // Section 2 UI Panels (State Machine)
+  private roomMenuView = document.getElementById('room-menu-view')!;
+  private hostRoomView = document.getElementById('host-room-view')!;
+  private joinRoomView = document.getElementById('join-room-view')!;
 
   private createRoomBtn = document.getElementById('create-room-btn')!;
-  private joinRoomBtn = document.getElementById('join-room-btn')!;
-  private roomCodeInput = document.getElementById('room-code-input') as HTMLInputElement;
-  private waitingBox = document.getElementById('waiting-box')!;
+  private showJoinBtn = document.getElementById('show-join-btn')!;
+  private playBotBtn = document.getElementById('play-bot-btn')!;
+
   private displayRoomCode = document.getElementById('display-room-code')!;
   private roomLinkInput = document.getElementById('room-link-input') as HTMLInputElement;
   private copyLinkBtn = document.getElementById('copy-link-btn')!;
   private copyFeedback = document.getElementById('copy-feedback')!;
   private cancelRoomBtn = document.getElementById('cancel-room-btn')!;
+
+  private roomCodeInput = document.getElementById('room-code-input') as HTMLInputElement;
+  private joinRoomConfirmBtn = document.getElementById('join-room-confirm-btn')!;
+  private cancelJoinBtn = document.getElementById('cancel-join-btn')!;
+
   private errorBanner = document.getElementById('error-message')!;
 
   private pingText = document.getElementById('ping-text')!;
+  private gameModeTag = document.getElementById('game-mode-tag')!;
   private gameRoomCode = document.getElementById('game-room-code')!;
   private exitGameBtn = document.getElementById('exit-game-btn')!;
   private rematchBar = document.getElementById('rematch-bar')!;
@@ -84,11 +95,11 @@ class DinoApp {
   }
 
   async init(): Promise<void> {
-    // 1. Load Chrome dark mode sprite sheet
+    // 1. Load clean classic dino sprite sheet
     try {
-      await this.spriteManager.load('/dino-dark.png');
-    } catch {
-      await this.spriteManager.load('/dino-transparent.png');
+      await this.spriteManager.load('/dino-classic.png');
+    } catch (e) {
+      console.error('Failed to load dino-classic.png', e);
     }
 
     // 2. Setup Canvas Renderer
@@ -120,6 +131,23 @@ class DinoApp {
 
   private setupEngineCallbacks(): void {
     this.localEngine.onCollision = (score, distance) => {
+      if (this.isBotMode && this.bot) {
+        if (this.bot.engine.isGameOver) {
+          if (distance > this.bot.engine.distance) {
+            this.winnerAnnouncement = '¡VICTORIA! Superaste al Bot';
+          } else if (distance < this.bot.engine.distance) {
+            this.winnerAnnouncement = 'DERROTA: El Bot llegó más lejos';
+          } else {
+            this.winnerAnnouncement = 'EMPATE EXACTO';
+          }
+        } else {
+          this.winnerAnnouncement = 'DERROTA: Has chocado';
+        }
+        this.rematchBar.classList.remove('hidden');
+        return;
+      }
+
+      // Multiplayer mode
       this.p2p.send({ type: 'DIED', score, distance });
 
       if (this.remoteState.isDead) {
@@ -141,7 +169,6 @@ class DinoApp {
     this.p2p = new P2PManager(this.profile, {
       onConnected: (remoteProfile) => {
         this.remoteProfile = remoteProfile;
-        this.waitingBox.classList.add('hidden');
         this.showGameScreen();
 
         if (this.p2p.isHost) {
@@ -206,15 +233,21 @@ class DinoApp {
   private startCountdown(seed: number, startTimestamp: number): void {
     this.currentSeed = seed;
     this.localEngine.reset(seed);
-    this.remoteState = {
-      y: 0,
-      vy: 0,
-      isDucking: false,
-      isGrounded: true,
-      distance: 0,
-      score: 0,
-      isDead: false,
-    };
+
+    if (this.isBotMode && this.bot) {
+      this.bot.reset(seed);
+    } else {
+      this.remoteState = {
+        y: 0,
+        vy: 0,
+        isDucking: false,
+        isGrounded: true,
+        distance: 0,
+        score: 0,
+        isDead: false,
+      };
+    }
+
     this.winnerAnnouncement = null;
     this.rematchBar.classList.add('hidden');
     this.countdownEndTime = startTimestamp;
@@ -242,27 +275,11 @@ class DinoApp {
         this.profile.color = hex;
         localStorage.setItem('dino_color', hex);
         this.p2p.setLocalProfile(this.profile);
-        this.renderSkinPreview();
       });
       this.colorPalette.appendChild(swatch);
     });
 
-    // 3. Skin Carousel
-    this.updateSkinLabel();
-    this.skinPrevBtn.addEventListener('click', () => {
-      let idx = SKIN_KEYS.indexOf(this.profile.skinId);
-      idx = (idx - 1 + SKIN_KEYS.length) % SKIN_KEYS.length;
-      this.profile.skinId = SKIN_KEYS[idx];
-      this.onSkinChanged();
-    });
-    this.skinNextBtn.addEventListener('click', () => {
-      let idx = SKIN_KEYS.indexOf(this.profile.skinId);
-      idx = (idx + 1) % SKIN_KEYS.length;
-      this.profile.skinId = SKIN_KEYS[idx];
-      this.onSkinChanged();
-    });
-
-    // 4. Create Room Button
+    // 3. Panel Navigation: Show Create Room View
     this.createRoomBtn.addEventListener('click', async () => {
       this.hideError();
       try {
@@ -271,21 +288,40 @@ class DinoApp {
         this.gameRoomCode.textContent = code;
         const shareUrl = `${window.location.origin}${window.location.pathname}?room=${code}`;
         this.roomLinkInput.value = shareUrl;
-        this.waitingBox.classList.remove('hidden');
-      } catch (err: any) {
-        this.showError('No se pudo crear la sala. Comprueba la conexión.');
+
+        // Switch panel cleanly
+        this.roomMenuView.classList.add('hidden');
+        this.hostRoomView.classList.remove('hidden');
+      } catch {
+        this.showError('No se pudo crear la sala. Verifica la conexión.');
       }
     });
 
-    // 5. Copy Link Button
-    this.copyLinkBtn.addEventListener('click', () => {
-      navigator.clipboard.writeText(this.roomLinkInput.value);
-      this.copyFeedback.classList.remove('hidden');
-      setTimeout(() => this.copyFeedback.classList.add('hidden'), 2500);
+    // 4. Panel Navigation: Show Join Room View
+    this.showJoinBtn.addEventListener('click', () => {
+      this.hideError();
+      this.roomMenuView.classList.add('hidden');
+      this.joinRoomView.classList.remove('hidden');
+      this.roomCodeInput.focus();
     });
 
-    // 6. Join Room Button
-    this.joinRoomBtn.addEventListener('click', () => {
+    // 5. Back Button (from Host view)
+    this.cancelRoomBtn.addEventListener('click', () => {
+      this.p2p.cleanup();
+      this.hostRoomView.classList.add('hidden');
+      this.roomMenuView.classList.remove('hidden');
+      this.hideError();
+    });
+
+    // 6. Back Button (from Join view)
+    this.cancelJoinBtn.addEventListener('click', () => {
+      this.joinRoomView.classList.add('hidden');
+      this.roomMenuView.classList.remove('hidden');
+      this.hideError();
+    });
+
+    // 7. Confirm Join Button
+    this.joinRoomConfirmBtn.addEventListener('click', () => {
       const code = this.roomCodeInput.value.trim().toUpperCase();
       if (!code) {
         this.showError('Ingresa un código de 4 letras.');
@@ -294,67 +330,78 @@ class DinoApp {
       this.joinRoom(code);
     });
 
-    // 7. Cancel Room Button
-    this.cancelRoomBtn.addEventListener('click', () => {
-      this.p2p.cleanup();
-      this.waitingBox.classList.add('hidden');
+    // 8. Bot Mode: Play Against Bot
+    this.playBotBtn.addEventListener('click', () => {
+      this.hideError();
+      this.isBotMode = true;
+      const seed = Math.floor(Math.random() * 1000000);
+      const botEngine = new GameEngine(seed);
+      this.bot = new DinoBot(botEngine);
+
+      this.gameModeTag.textContent = 'MODO: BOT';
+      this.pingText.textContent = 'LOCAL: 0ms';
+
+      this.showGameScreen();
+      this.startCountdown(seed, Date.now() + 2500);
     });
 
-    // 8. Exit Game Button
+    // 9. Copy Link Button
+    this.copyLinkBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(this.roomLinkInput.value);
+      this.copyFeedback.classList.remove('hidden');
+      setTimeout(() => this.copyFeedback.classList.add('hidden'), 2500);
+    });
+
+    // 10. Exit Game Button
     this.exitGameBtn.addEventListener('click', () => {
       this.exitToLobby();
     });
 
-    // 9. Rematch Button
+    // 11. Rematch Button
     this.rematchBtn.addEventListener('click', () => {
       const newSeed = Math.floor(Math.random() * 1000000);
-      this.p2p.send({ type: 'REMATCH_REQUEST', seed: newSeed });
-      const startTimestamp = Date.now() + 3000;
-      this.p2p.send({ type: 'START_GAME', seed: newSeed, startTimestamp });
-      this.startCountdown(newSeed, startTimestamp);
+      if (this.isBotMode && this.bot) {
+        this.startCountdown(newSeed, Date.now() + 2500);
+      } else {
+        this.p2p.send({ type: 'REMATCH_REQUEST', seed: newSeed });
+        const startTimestamp = Date.now() + 3000;
+        this.p2p.send({ type: 'START_GAME', seed: newSeed, startTimestamp });
+        this.startCountdown(newSeed, startTimestamp);
+      }
     });
   }
 
   private async joinRoom(code: string): Promise<void> {
     this.hideError();
+    this.isBotMode = false;
     this.gameRoomCode.textContent = code;
     try {
       await this.p2p.joinRoom(code);
-    } catch (e: any) {
+    } catch {
       this.showError('No se pudo conectar a la sala.');
     }
-  }
-
-  private onSkinChanged(): void {
-    localStorage.setItem('dino_skin', this.profile.skinId);
-    this.p2p.setLocalProfile(this.profile);
-    this.updateSkinLabel();
-    this.renderSkinPreview();
-  }
-
-  private updateSkinLabel(): void {
-    const skin = SKINS[this.profile.skinId] || SKINS.classic;
-    this.skinNameLabel.textContent = skin.name;
   }
 
   private renderSkinPreview(): void {
     const ctx = this.skinPreviewCanvas.getContext('2d');
     if (!ctx) return;
 
-    ctx.clearRect(0, 0, 120, 120);
+    ctx.clearRect(0, 0, 88, 94);
     ctx.imageSmoothingEnabled = false;
 
-    const skin = SKINS[this.profile.skinId] || SKINS.classic;
-    const img = this.spriteManager.getImage();
+    const img = this.spriteManager.getImage('/dino-classic.png');
     if (!img) return;
 
-    const frame = Math.floor(this.previewAnimTimer * 8) % 2;
+    // Calm preview animation cadence: 2.5 steps per second
+    const frame = Math.floor(this.previewAnimTimer * 2.5) % 2;
+    const skin = SKINS.classic;
     const spriteRect = skin.run[frame];
 
-    const targetH = 75;
-    const targetW = Math.round((spriteRect.w / spriteRect.h) * targetH);
-    const x = Math.round((120 - targetW) / 2);
-    const y = Math.round((120 - targetH) / 2);
+    // Draw at 2x scale crisp pixel art in the center
+    const targetW = 44 * 1.5;
+    const targetH = 47 * 1.5;
+    const x = Math.round((88 - targetW) / 2);
+    const y = Math.round((94 - targetH) / 2);
 
     ctx.drawImage(
       img,
@@ -418,7 +465,7 @@ class DinoApp {
   }
 
   private sendStateNow(): void {
-    if (!this.isMatchRunning) return;
+    if (!this.isMatchRunning || this.isBotMode) return;
     this.p2p.send({
       type: 'STATE',
       y: this.localEngine.dino.y,
@@ -439,8 +486,17 @@ class DinoApp {
 
   private exitToLobby(): void {
     this.p2p.cleanup();
+    this.isBotMode = false;
+    this.bot = null;
+
     this.gameScreen.classList.remove('active');
     this.lobbyScreen.classList.add('active');
+
+    // Return to main menu panel
+    this.hostRoomView.classList.add('hidden');
+    this.joinRoomView.classList.add('hidden');
+    this.roomMenuView.classList.remove('hidden');
+
     this.rematchBar.classList.add('hidden');
     this.isMatchRunning = false;
     this.countdownEndTime = null;
@@ -483,15 +539,25 @@ class DinoApp {
       if (this.isMatchRunning) {
         this.localEngine.update(1 / 60);
 
-        if (Date.now() - this.lastNetworkSendTime > 33) {
-          this.sendStateNow();
+        if (this.isBotMode && this.bot) {
+          this.bot.update(1 / 60);
+
+          if (this.bot.engine.isGameOver && !this.localEngine.isGameOver) {
+            this.winnerAnnouncement = '¡VICTORIA! El Bot ha chocado';
+            this.rematchBar.classList.remove('hidden');
+          }
+        } else {
+          // P2P telemetry broadcast
+          if (Date.now() - this.lastNetworkSendTime > 33) {
+            this.sendStateNow();
+          }
         }
       }
 
       const localVisual: PlayerVisualState = {
         name: this.profile.name,
         color: this.profile.color,
-        skinId: this.profile.skinId,
+        skinId: 'classic',
         isLocal: true,
         score: this.localEngine.score,
         distance: this.localEngine.distance,
@@ -501,20 +567,35 @@ class DinoApp {
         isDead: this.localEngine.isGameOver,
       };
 
-      const remoteVisual: PlayerVisualState | null = this.remoteProfile
-        ? {
-            name: this.remoteProfile.name,
-            color: this.remoteProfile.color,
-            skinId: this.remoteProfile.skinId,
-            isLocal: false,
-            score: this.remoteState.score,
-            distance: this.remoteState.distance,
-            y: this.remoteState.y,
-            isDucking: this.remoteState.isDucking,
-            isGrounded: this.remoteState.isGrounded,
-            isDead: this.remoteState.isDead,
-          }
-        : null;
+      let remoteVisual: PlayerVisualState | null = null;
+
+      if (this.isBotMode && this.bot) {
+        remoteVisual = {
+          name: 'BOT T-Rex',
+          color: '#acacac',
+          skinId: 'classic',
+          isLocal: false,
+          score: this.bot.engine.score,
+          distance: this.bot.engine.distance,
+          y: this.bot.engine.dino.y,
+          isDucking: this.bot.engine.dino.isDucking,
+          isGrounded: this.bot.engine.dino.isGrounded,
+          isDead: this.bot.engine.isGameOver,
+        };
+      } else if (this.remoteProfile) {
+        remoteVisual = {
+          name: this.remoteProfile.name,
+          color: this.remoteProfile.color,
+          skinId: 'classic',
+          isLocal: false,
+          score: this.remoteState.score,
+          distance: this.remoteState.distance,
+          y: this.remoteState.y,
+          isDucking: this.remoteState.isDucking,
+          isGrounded: this.remoteState.isGrounded,
+          isDead: this.remoteState.isDead,
+        };
+      }
 
       this.renderer.render(
         this.localEngine,

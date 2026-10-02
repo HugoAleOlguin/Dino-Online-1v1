@@ -16,18 +16,13 @@
       <div class="lobby-container">
         
         <header class="dino-header">
-          <div class="dino-icon-header">
-            <!-- Authentic pixel art dino silhouette -->
-            <svg width="48" height="48" viewBox="0 0 44 47" fill="#acacac">
-              <path d="M22 0h17v16H22zM1 18h30v9H1zM10 35h14v8H10zM1 24h29v5H1zM5 30h21v4H5zM9 34h15v4H9z" />
-            </svg>
-          </div>
+          <div class="header-dino-sprite" aria-label="Dino T-Rex"></div>
           <h1 class="main-title">DINO 1v1</h1>
-          <p class="offline-subtitle">Sin conexión a internet &bull; Carrera de Supervivencia</p>
+          <p class="offline-subtitle">Sin conexión a internet &bull; Duelo de Supervivencia</p>
         </header>
 
         <div class="lobby-card">
-          <!-- 1. Customization -->
+          <!-- 1. Player Customization -->
           <div class="card-column">
             <h2 class="column-heading">1. JUGADOR</h2>
 
@@ -42,45 +37,66 @@
             </div>
 
             <div class="field-block">
-              <label>Skin:</label>
+              <label>Vista Previa:</label>
               <div class="skin-box">
-                <button type="button" id="skin-prev-btn" class="classic-nav-btn">&lt;</button>
                 <div class="skin-stage">
-                  <canvas id="skin-preview-canvas" width="120" height="120"></canvas>
+                  <canvas id="skin-preview-canvas" width="88" height="94"></canvas>
                   <span id="skin-name-label" class="skin-caption">T-Rex Clásico</span>
                 </div>
-                <button type="button" id="skin-next-btn" class="classic-nav-btn">&gt;</button>
               </div>
             </div>
           </div>
 
-          <!-- 2. Room Connection -->
+          <!-- 2. Game Modes & Room Connection -->
           <div class="card-column">
-            <h2 class="column-heading">2. MULTIJUGADOR</h2>
+            <h2 class="column-heading">2. MODO DE JUEGO</h2>
 
-            <div class="action-stack">
+            <!-- VIEW 1: Main Menu Options -->
+            <div id="room-menu-view" class="action-stack">
               <button id="create-room-btn" class="classic-btn classic-btn-primary">
-                CREAR SALA NUEVA
+                ⚡ CREAR SALA MULTIJUGADOR
               </button>
 
-              <div class="separator-line"><span>O</span></div>
+              <button id="show-join-btn" class="classic-btn">
+                🔑 UNIRSE CON CÓDIGO
+              </button>
 
-              <div class="join-row">
-                <input type="text" id="room-code-input" maxlength="4" placeholder="CÓDIGO" autocomplete="off">
-                <button id="join-room-btn" class="classic-btn">UNIRSE</button>
-              </div>
+              <div class="separator-line"><span>O EN SOLITARIO</span></div>
+
+              <button id="play-bot-btn" class="classic-btn classic-btn-bot">
+                🤖 JUGAR CONTRA BOT
+              </button>
             </div>
 
-            <!-- Host Waiting Box -->
-            <div id="waiting-box" class="waiting-card hidden">
-              <p class="waiting-title">SALA CREADA: <span id="display-room-code" class="code-badge">----</span></p>
-              <p class="waiting-desc">Pásale este enlace a tu rival:</p>
-              <div class="link-row">
-                <input type="text" id="room-link-input" readonly>
-                <button id="copy-link-btn" class="classic-btn btn-compact">COPIAR LINK</button>
+            <!-- VIEW 2: Host Room Created (Replaces View 1 completely!) -->
+            <div id="host-room-view" class="room-panel hidden">
+              <div class="panel-header">
+                <span class="panel-label">SALA CREADA:</span>
+                <span id="display-room-code" class="code-badge">----</span>
               </div>
-              <p id="copy-feedback" class="feedback-msg hidden">¡Enlace copiado!</p>
-              <button id="cancel-room-btn" class="text-link-btn">Cancelar</button>
+              
+              <p class="panel-desc">Enlace para tu rival:</p>
+              <div class="full-link-box">
+                <input type="text" id="room-link-input" readonly>
+                <button id="copy-link-btn" class="classic-btn btn-compact">COPIAR ENLACE</button>
+              </div>
+              <p id="copy-feedback" class="feedback-msg hidden">✓ ¡Enlace copiado al portapapeles!</p>
+
+              <div class="waiting-indicator">
+                <span class="pulsing-dot"></span> Esperando a que el rival entre con el enlace...
+              </div>
+
+              <button id="cancel-room-btn" class="classic-btn btn-back">← VOLVER AL MENÚ</button>
+            </div>
+
+            <!-- VIEW 3: Join Room by Code (Replaces View 1 completely!) -->
+            <div id="join-room-view" class="room-panel hidden">
+              <span class="panel-label">CÓDIGO DE LA SALA:</span>
+              <div class="join-input-group">
+                <input type="text" id="room-code-input" maxlength="4" placeholder="EJ: AB12" autocomplete="off">
+                <button id="join-room-confirm-btn" class="classic-btn classic-btn-primary">ENTRAR</button>
+              </div>
+              <button id="cancel-join-btn" class="classic-btn btn-back">← VOLVER AL MENÚ</button>
             </div>
 
             <div id="error-message" class="alert-box hidden"></div>
@@ -98,7 +114,7 @@
     <div id="game-screen" class="screen">
       <div class="game-top-bar">
         <div class="stat-tag" id="ping-text">PING: --ms</div>
-        <div class="stat-tag">SALA: <span id="game-room-code">----</span></div>
+        <div class="stat-tag" id="game-mode-tag">SALA: <span id="game-room-code">----</span></div>
         <button id="exit-game-btn" class="classic-btn btn-compact">SALIR</button>
       </div>
 

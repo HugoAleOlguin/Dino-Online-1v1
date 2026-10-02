@@ -28,8 +28,6 @@ export class DoubleTrackRenderer {
   public readonly track1GroundY = 220; // Top track ground
   public readonly track2GroundY = 470; // Bottom track ground
 
-  private animTimer = 0;
-
   constructor(canvas: HTMLCanvasElement, spriteManager: SpriteManager) {
     this.canvas = canvas;
     const context = canvas.getContext('2d', { alpha: false });
@@ -47,8 +45,6 @@ export class DoubleTrackRenderer {
   ): void {
     const ctx = this.ctx;
     ctx.imageSmoothingEnabled = false;
-
-    this.animTimer += 1 / 60;
 
     // Classic Chrome Dino Dark Mode Background: #202124
     ctx.fillStyle = '#202124';
@@ -74,14 +70,14 @@ export class DoubleTrackRenderer {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // 3. Draw Track 2 (Bottom Track - Player 2 / Rival)
+    // 3. Draw Track 2 (Bottom Track - Player 2 / Rival or Bot)
     if (remotePlayer) {
       this.drawTrack(
         this.track2GroundY,
         remotePlayer.distance,
         remotePlayer,
         localEngine.obstacles, // Same obstacles because same seed
-        'P2 (RIVAL)',
+        remotePlayer.name.includes('BOT') ? 'BOT' : 'P2 (RIVAL)',
         remotePlayer.color || '#acacac'
       );
     } else {
@@ -113,7 +109,7 @@ export class DoubleTrackRenderer {
     // Player tag badge
     ctx.font = 'bold 13px "Press Start 2P", monospace';
     ctx.fillStyle = accentColor;
-    ctx.fillText(`${label}: ${player.name.substring(0, 12)}`, 24, groundY - 180);
+    ctx.fillText(`${label}: ${player.name.substring(0, 14)}`, 24, groundY - 180);
 
     // Classic 5-digit Distance Counter on the right (like Google Dino: HI 00000  00450)
     ctx.textAlign = 'right';
@@ -135,7 +131,6 @@ export class DoubleTrackRenderer {
     const scrollOffset = Math.floor(distance) % 48;
     for (let x = 20 - scrollOffset; x < this.vWidth - 20; x += 48) {
       if (x >= 20) {
-        // Classic horizontal dash & tick
         ctx.fillRect(x, groundY + 3, 16, 2);
         ctx.fillRect(x + 24, groundY + 7, 8, 2);
         ctx.fillRect(x + 36, groundY + 4, 3, 2);
@@ -167,21 +162,21 @@ export class DoubleTrackRenderer {
 
   private drawDino(player: PlayerVisualState, x: number, groundY: number): void {
     const ctx = this.ctx;
-    const skin: SkinAnimationSet = SKINS[player.skinId] || SKINS.classic;
-    const img = this.spriteManager.getImage();
+    const skin: SkinAnimationSet = SKINS.classic;
+    const img = this.spriteManager.getImage('/dino-classic.png');
 
-    // Determine current animation frame
+    // Natural running cadence: legs alternate every 24 pixels of track distance
+    const runStep = Math.floor(player.distance / 24) % 2;
+
     let spriteRect = skin.idle;
     if (player.isDead) {
       spriteRect = skin.dead;
     } else if (!player.isGrounded) {
-      spriteRect = skin.idle;
+      spriteRect = skin.idle; // in air
     } else if (player.isDucking) {
-      const duckFrame = Math.floor(this.animTimer * 10) % 2;
-      spriteRect = skin.duck[duckFrame] || skin.duck[0];
+      spriteRect = skin.duck[runStep] || skin.duck[0];
     } else {
-      const runFrame = Math.floor(this.animTimer * 12) % 2;
-      spriteRect = skin.run[runFrame];
+      spriteRect = skin.run[runStep] || skin.run[0];
     }
 
     const renderHeight = player.isDucking ? skin.duckHeight : skin.targetHeight;
@@ -189,7 +184,6 @@ export class DoubleTrackRenderer {
     const screenY = groundY - renderHeight - player.y;
 
     if (img) {
-      // Clean, unblurred retro sprite render
       ctx.drawImage(
         img,
         spriteRect.x,
@@ -211,16 +205,13 @@ export class DoubleTrackRenderer {
     const ctx = this.ctx;
     const screenY = groundY - obs.height - obs.y;
 
-    // Classic Chrome Dino color: #acacac (no neon!)
+    // Classic Chrome Dino color: #acacac (exact monochrome grey)
     ctx.fillStyle = '#acacac';
 
     if (obs.type === 'CACTUS_SMALL') {
-      // Hitbox-matching small cactus: 3 parts
-      // Left arm: x: 0, y: 7, w: 5, h: 27
+      // Small cactus: 3 parts matching hitboxes
       ctx.fillRect(screenX, screenY + 7, 5, 27);
-      // Main trunk: x: 4, y: 0, w: 6, h: 34
       ctx.fillRect(screenX + 4, screenY, 7, 35);
-      // Right arm: x: 10, y: 4, w: 7, h: 14
       ctx.fillRect(screenX + 11, screenY + 4, 6, 14);
     } else if (obs.type === 'CACTUS_DOUBLE') {
       // Cactus 1
@@ -233,15 +224,12 @@ export class DoubleTrackRenderer {
       ctx.fillRect(screenX + 27, screenY + 4, 6, 14);
     } else if (obs.type === 'CACTUS_LARGE') {
       // Large Cactus: 3 parts matching hitboxes
-      // Left arm: x: 0, y: 12, w: 7, h: 38
       ctx.fillRect(screenX, screenY + 12, 7, 38);
-      // Center stalk: x: 8, y: 0, w: 7, h: 49
       ctx.fillRect(screenX + 8, screenY, 8, 50);
-      // Right arm: x: 13, y: 10, w: 10, h: 38
       ctx.fillRect(screenX + 15, screenY + 10, 10, 38);
     } else {
-      // Pterodactyl: wings flap up and down
-      const wingFrame = Math.floor(this.animTimer * 8) % 2;
+      // Pterodactyl: wings flap at calm rhythm (every 40px of distance)
+      const wingFrame = Math.floor(obs.x / 40) % 2;
       // Head and beak
       ctx.fillRect(screenX + 2, screenY + 14, 4, 3);
       ctx.fillRect(screenX + 6, screenY + 10, 4, 7);
