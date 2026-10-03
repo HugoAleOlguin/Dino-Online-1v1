@@ -54,64 +54,27 @@ function isBg(r, g, b) {
   return Math.abs(r - bgR1) < 15 && Math.abs(g - bgG1) < 15 && Math.abs(b - bgB1) < 15;
 }
 
-// 2. Load official Chromium sprite sheet (public/offline-sprite-dark.png)
-const buf2 = fs.readFileSync('public/offline-sprite-dark.png');
-const width2 = buf2.readUInt32BE(16);
-const height2 = buf2.readUInt32BE(20);
-
-let pos2 = 8;
-const idat2 = [];
-while (pos2 < buf2.length) {
-  const len = buf2.readUInt32BE(pos2);
-  const type = buf2.toString('ascii', pos2 + 4, pos2 + 8);
-  if (type === 'IDAT') idat2.push(buf2.subarray(pos2 + 8, pos2 + 8 + len));
-  pos2 += 12 + len;
-}
-const raw2 = zlib.inflateSync(Buffer.concat(idat2));
-const stride2 = 1 + width2 * 4;
-const uncompressed2 = Buffer.alloc(width2 * height2 * 4);
-
-let prevRow2 = Buffer.alloc(width2 * 4);
-for (let y = 0; y < height2; y++) {
-  const filter = raw2[y * stride2];
-  const currentRow = Buffer.alloc(width2 * 4);
-  for (let x = 0; x < width2 * 4; x++) {
-    const rawByte = raw2[y * stride2 + 1 + x];
-    const left = x >= 4 ? currentRow[x - 4] : 0;
-    const up = prevRow2[x];
-    const upLeft = x >= 4 ? prevRow2[x - 4] : 0;
-    let val = 0;
-    if (filter === 0) val = rawByte;
-    else if (filter === 1) val = (rawByte + left) & 0xff;
-    else if (filter === 2) val = (rawByte + up) & 0xff;
-    else if (filter === 3) val = (rawByte + Math.floor((left + up) / 2)) & 0xff;
-    else if (filter === 4) val = (rawByte + paeth(left, up, upLeft)) & 0xff;
-    currentRow[x] = val;
-  }
-  currentRow.copy(uncompressed2, y * width2 * 4);
-  prevRow2 = currentRow;
-}
-
-// 7 Authentic Google Chrome Community Skins
+// 5 Authentic Google Chrome Community Skins with Real Classic Dino
+// Swimming and Surfing (which lacked authentic ducking) removed per user requirements
 const SKINS_DEF = [
   {
     id: 'classic',
     name: 'T-Rex Clásico Original',
-    source: 'chromium',
+    source: 'community',
     targetHeight: 47,
     duckHeight: 30,
     frames: {
-      idle: { sx: 848, sy: 2, w: 44, h: 47 },
-      run1: { sx: 936, sy: 2, w: 44, h: 47 },
-      run2: { sx: 980, sy: 2, w: 44, h: 47 },
-      dead: { sx: 1024, sy: 2, w: 44, h: 47 },
-      duck1: { sx: 1112, sy: 19, w: 59, h: 30 },
-      duck2: { sx: 1171, sy: 19, w: 59, h: 30 },
+      idle: { sx: 55, sy: 3, w: 44, h: 47 },
+      run1: { sx: 153, sy: 3, w: 44, h: 47 },
+      run2: { sx: 202, sy: 3, w: 44, h: 47 },
+      dead: { sx: 302, sy: 3, w: 44, h: 47 },
+      duck1: { sx: 349, sy: 20, w: 59, h: 30 },
+      duck2: { sx: 413, sy: 20, w: 59, h: 30 },
     }
   },
   {
     id: 'party',
-    name: 'T-Rex Cumpleaños 🥳',
+    name: 'T-Rex Cumpleaños',
     source: 'community',
     targetHeight: 63,
     duckHeight: 43,
@@ -126,7 +89,7 @@ const SKINS_DEF = [
   },
   {
     id: 'hurdles',
-    name: 'T-Rex Atleta 🏃',
+    name: 'T-Rex Atleta',
     source: 'community',
     targetHeight: 47,
     duckHeight: 38,
@@ -141,7 +104,7 @@ const SKINS_DEF = [
   },
   {
     id: 'gymnastics',
-    name: 'T-Rex Gimnasta 🤸',
+    name: 'T-Rex Gimnasta',
     source: 'community',
     targetHeight: 47,
     duckHeight: 35,
@@ -155,23 +118,8 @@ const SKINS_DEF = [
     }
   },
   {
-    id: 'surfing',
-    name: 'T-Rex Surfista 🏄',
-    source: 'community',
-    targetHeight: 55,
-    duckHeight: 45,
-    frames: {
-      idle: { sx: 6, sy: 462, w: 50, h: 55 },
-      run1: { sx: 61, sy: 462, w: 50, h: 51 },
-      run2: { sx: 115, sy: 462, w: 50, h: 55 },
-      dead: { sx: 169, sy: 462, w: 50, h: 55 },
-      duck1: { sx: 61, sy: 462, w: 50, h: 51 },
-      duck2: { sx: 115, sy: 462, w: 50, h: 55 },
-    }
-  },
-  {
     id: 'equestrian',
-    name: 'T-Rex Ecuestre 🐎',
+    name: 'T-Rex Ecuestre',
     source: 'community',
     targetHeight: 67,
     duckHeight: 55,
@@ -182,21 +130,6 @@ const SKINS_DEF = [
       dead: { sx: 188, sy: 383, w: 46, h: 62 },
       duck1: { sx: 123, sy: 381, w: 54, h: 71 },
       duck2: { sx: 123, sy: 381, w: 54, h: 71 },
-    }
-  },
-  {
-    id: 'swimming',
-    name: 'T-Rex Natación 🏊',
-    source: 'community',
-    targetHeight: 35,
-    duckHeight: 26,
-    frames: {
-      idle: { sx: 803, sy: 411, w: 65, h: 30 },
-      run1: { sx: 803, sy: 411, w: 65, h: 30 },
-      run2: { sx: 871, sy: 411, w: 65, h: 30 },
-      dead: { sx: 939, sy: 411, w: 63, h: 32 },
-      duck1: { sx: 1005, sy: 413, w: 61, h: 26 },
-      duck2: { sx: 1005, sy: 413, w: 61, h: 26 },
     }
   }
 ];
@@ -233,9 +166,8 @@ SKINS_DEF.forEach((skin, rowIndex) => {
     if (fKey === 'duck1') skinFrames.duck = [destRect];
     if (fKey === 'duck2') skinFrames.duck.push(destRect);
 
-    const isChromium = skin.source === 'chromium';
-    const srcBuf = isChromium ? uncompressed2 : uncompressed1;
-    const srcWidth = isChromium ? width2 : width1;
+    const srcBuf = uncompressed1;
+    const srcWidth = width1;
 
     for (let y = 0; y < src.h; y++) {
       for (let x = 0; x < src.w; x++) {
@@ -246,7 +178,14 @@ SKINS_DEF.forEach((skin, rowIndex) => {
         const a = srcBuf[srcIdx + 3];
 
         if (a < 10) continue;
-        if (!isChromium && isBg(r, g, b)) continue;
+
+        if (skin.id === 'classic') {
+          // Classic Dino must be the authentic #535353 dark silhouette, filtering out white sticker border
+          if (r > 100 || g > 100 || b > 100) continue;
+        } else {
+          // Other community skins keep colors and filter out background
+          if (isBg(r, g, b)) continue;
+        }
 
         const destIdx = ((destY + y) * totalSheetWidth + (currentX + x)) * 4;
         sheetBuf[destIdx] = r;
@@ -308,4 +247,4 @@ const png = Buffer.concat([
 fs.writeFileSync('public/dino-skins.png', png);
 fs.writeFileSync('src/render/skin-data.json', JSON.stringify(skinMetadata, null, 2));
 
-console.log('Successfully updated public/dino-skins.png with Chromium official classic Trex and 6 community skins!');
+console.log('Successfully generated public/dino-skins.png and src/render/skin-data.json with authentic classic dino and 4 community skins!');

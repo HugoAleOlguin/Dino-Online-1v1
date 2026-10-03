@@ -163,5 +163,48 @@ describe('In-game UI Helpers & Nick Badge', () => {
     // Ducking lowers the top head position (larger Y)
     expect(duckingLayout.y).toBeGreaterThan(runningLayout.y);
   });
+
+  it('guarantees zero clipping for all skins in lobby preview across all frames', () => {
+    const canvasW = 96;
+    const canvasH = 96;
+    const activeSkinKeys = Object.keys(SKINS);
+
+    // Swimming and surfing must be completely removed
+    expect(activeSkinKeys).not.toContain('swimming');
+    expect(activeSkinKeys).not.toContain('surfing');
+    expect(activeSkinKeys).toContain('classic');
+    expect(activeSkinKeys).toContain('party');
+
+    // Classic must be authentic Google Chrome dino (height 47, duck height 30)
+    expect(SKINS.classic.targetHeight).toBe(47);
+    expect(SKINS.classic.duckHeight).toBe(30);
+
+    for (const skinKey of activeSkinKeys) {
+      const skin = SKINS[skinKey];
+      // Zero emojis in skin names
+      expect(skin.name).not.toMatch(/[\uD83C-\uDBFF\uDC00-\uDFFF\u2600-\u27BF]/);
+
+      const framesToTest = [
+        skin.idle,
+        skin.run[0],
+        skin.run[1],
+        skin.dead,
+        skin.duck[0],
+        skin.duck[1],
+      ];
+
+      for (const frame of framesToTest) {
+        const layout = calculateLobbyPreviewLayout(frame, canvasW, canvasH, 1.25, 86);
+        // Guaranteed inside boundaries
+        expect(layout.x).toBeGreaterThanOrEqual(0);
+        expect(layout.y).toBeGreaterThanOrEqual(0);
+        expect(layout.x + layout.width).toBeLessThanOrEqual(canvasW);
+        expect(layout.y + layout.height).toBeLessThanOrEqual(canvasH);
+        // Feet must remain precisely at baseline (86)
+        expect(layout.y + layout.height).toBe(86);
+      }
+    }
+  });
 });
+
 

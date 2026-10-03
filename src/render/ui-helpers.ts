@@ -138,20 +138,35 @@ export interface LobbyPreviewLayout {
 }
 
 /**
- * Calculates pixel dimensions and coordinates for the lobby preview canvas (88x94)
- * with feet grounded on a fixed baseline so ducking animates naturally downwards.
+ * Calculates pixel dimensions and coordinates for the lobby preview canvas (96x96)
+ * with feet grounded on a fixed baseline so ducking animates naturally downwards,
+ * dynamically scaling down if needed so no skin or duck frame is ever clipped.
  */
 export function calculateLobbyPreviewLayout(
   spriteRect: SpriteRect,
-  canvasWidth: number = 88,
-  canvasHeight: number = 94,
-  scale: number = 1.4,
-  baselineY: number = 78
+  canvasWidth: number = 96,
+  canvasHeight: number = 96,
+  baseScale: number = 1.25,
+  baselineY: number = 86
 ): LobbyPreviewLayout {
+  const padding = 4;
+  let scale = baseScale;
+
+  // Guarantee sprite never clips through top edge
+  if (spriteRect.h * scale > baselineY - padding) {
+    scale = (baselineY - padding) / spriteRect.h;
+  }
+  // Guarantee sprite never clips through left/right edges
+  if (spriteRect.w * scale > canvasWidth - padding * 2) {
+    scale = Math.min(scale, (canvasWidth - padding * 2) / spriteRect.w);
+  }
+
   const width = Math.round(spriteRect.w * scale);
   const height = Math.round(spriteRect.h * scale);
   const x = Math.round((canvasWidth - width) / 2);
   const y = baselineY - height;
+
   return { x, y, width, height };
 }
+
 

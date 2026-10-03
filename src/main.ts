@@ -668,30 +668,19 @@ class DinoApp {
     });
 
     // 3. Skin Selection Carousel
-    const updateSkin = (newSkinId: string) => {
-      this.profile.skinId = newSkinId;
-      localStorage.setItem('dino_skin', newSkinId);
-      this.skinNameLabel.textContent = SKINS[newSkinId]?.name || newSkinId;
-      this.p2p.setLocalProfile(this.profile);
-      this.updateLobbyCards();
-    };
-
     if (!SKINS[this.profile.skinId]) {
       this.profile.skinId = 'classic';
     }
-    this.skinNameLabel.textContent = SKINS[this.profile.skinId]?.name || 'T-Rex Clásico HD';
+    this.skinNameLabel.textContent = SKINS[this.profile.skinId]?.name || 'T-Rex Clásico Original';
 
     this.skinPrevBtn.addEventListener('click', () => {
-      const currentIndex = SKIN_KEYS.indexOf(this.profile.skinId);
-      const nextIndex = (currentIndex - 1 + SKIN_KEYS.length) % SKIN_KEYS.length;
-      updateSkin(SKIN_KEYS[nextIndex]);
+      this.stepSkin(-1);
     });
 
     this.skinNextBtn.addEventListener('click', () => {
-      const currentIndex = SKIN_KEYS.indexOf(this.profile.skinId);
-      const nextIndex = (currentIndex + 1) % SKIN_KEYS.length;
-      updateSkin(SKIN_KEYS[nextIndex]);
+      this.stepSkin(1);
     });
+
 
     // 4. Panel Navigation: Show Create Room View
     this.createRoomBtn.addEventListener('click', async () => {
@@ -1209,7 +1198,7 @@ class DinoApp {
       this.hostCardName.style.color = this.profile.color || '#fff';
     }
     if (this.hostCardSkin) {
-      this.hostCardSkin.textContent = SKINS[this.profile.skinId]?.name || 'T-Rex Clásico HD';
+      this.hostCardSkin.textContent = SKINS[this.profile.skinId]?.name || 'T-Rex Clásico Original';
     }
 
     // 2. Host View: Card 2 (Remote Player or Empty Slot)
@@ -1222,7 +1211,7 @@ class DinoApp {
         this.guestCardName.style.color = this.remoteProfile.color || '#fff';
       }
       if (this.guestCardSkin) {
-        this.guestCardSkin.textContent = SKINS[this.remoteProfile.skinId]?.name || 'T-Rex Clásico HD';
+        this.guestCardSkin.textContent = SKINS[this.remoteProfile.skinId]?.name || 'T-Rex Clásico Original';
       }
       if (this.guestCardStatus) {
         this.guestCardStatus.textContent = this.remoteInLobby ? 'EN EL LOBBY' : 'LISTO';
@@ -1240,7 +1229,7 @@ class DinoApp {
         this.guestViewHostName.style.color = this.remoteProfile.color || '#fff';
       }
       if (this.guestViewHostSkin) {
-        this.guestViewHostSkin.textContent = SKINS[this.remoteProfile.skinId]?.name || 'T-Rex Clásico HD';
+        this.guestViewHostSkin.textContent = SKINS[this.remoteProfile.skinId]?.name || 'T-Rex Clásico Original';
       }
     }
     if (this.guestViewMyName) {
@@ -1248,17 +1237,38 @@ class DinoApp {
       this.guestViewMyName.style.color = this.profile.color || '#fff';
     }
     if (this.guestViewMySkin) {
-      this.guestViewMySkin.textContent = SKINS[this.profile.skinId]?.name || 'T-Rex Clásico HD';
+      this.guestViewMySkin.textContent = SKINS[this.profile.skinId]?.name || 'T-Rex Clásico Original';
     }
 
     this.updateLobbyAvatars();
+  }
+
+  private stepSkin(direction: number): void {
+    const skinKeys = Object.keys(SKINS);
+    if (skinKeys.length === 0) return;
+    const currentIndex = skinKeys.indexOf(this.profile.skinId);
+    const nextIndex = (currentIndex + direction + skinKeys.length) % skinKeys.length;
+    this.setSkin(skinKeys[nextIndex]);
+  }
+
+  private setSkin(newSkinId: string): void {
+    if (!SKINS[newSkinId]) {
+      newSkinId = 'classic';
+    }
+    this.profile.skinId = newSkinId;
+    localStorage.setItem('dino_skin', newSkinId);
+    if (this.skinNameLabel) {
+      this.skinNameLabel.textContent = SKINS[newSkinId]?.name || newSkinId;
+    }
+    this.p2p.setLocalProfile(this.profile);
+    this.updateLobbyCards();
   }
 
   private renderSkinPreview(): void {
     const ctx = this.skinPreviewCanvas.getContext('2d');
     if (!ctx) return;
 
-    ctx.clearRect(0, 0, 88, 94);
+    ctx.clearRect(0, 0, 96, 96);
     ctx.imageSmoothingEnabled = false;
 
     const img = this.spriteManager.getImage('/dino-skins.png') || this.spriteManager.getImage('/dino-classic.png');
@@ -1273,8 +1283,8 @@ class DinoApp {
     const spriteRect = getLobbyPreviewSprite(skin, this.isLobbyDucking, frame);
     if (!spriteRect) return;
 
-    // Calculate layout with feet grounded on fixed baseline
-    const layout = calculateLobbyPreviewLayout(spriteRect, 88, 94, 1.4, 78);
+    // Calculate layout with feet grounded on fixed baseline without clipping
+    const layout = calculateLobbyPreviewLayout(spriteRect, 96, 96, 1.25, 86);
 
     ctx.drawImage(
       img,
@@ -1341,6 +1351,11 @@ class DinoApp {
             this.localEngine.handleInput(DinoAction.DUCK_START);
             this.sendStateNow();
           }
+        }
+      } else if (['ArrowLeft', 'ArrowRight'].includes(e.code)) {
+        if (!isTyping && this.lobbyScreen.classList.contains('active')) {
+          e.preventDefault();
+          this.stepSkin(e.code === 'ArrowRight' ? 1 : -1);
         }
       }
     });
