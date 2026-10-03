@@ -9,6 +9,7 @@ export interface PlayerProfile {
 
 export type NetMessage =
   | { type: 'HANDSHAKE'; profile: PlayerProfile }
+  | { type: 'HANDSHAKE_ACK'; profile: PlayerProfile }
   | { type: 'PROFILE_UPDATE'; profile: PlayerProfile }
   | { type: 'START_GAME'; seed: number; startTimestamp: number }
   | {
@@ -221,7 +222,7 @@ export class P2PManager {
   private setupConnection(conn: DataConnection, onOpen?: () => void): void {
     this.connection = conn;
 
-    conn.on('open', () => {
+    const handleOpen = () => {
       // 1. Send local handshake
       this.send({ type: 'HANDSHAKE', profile: this.localProfile });
 
@@ -231,7 +232,13 @@ export class P2PManager {
       if (onOpen) {
         onOpen();
       }
-    });
+    };
+
+    if (conn.open) {
+      handleOpen();
+    } else {
+      conn.on('open', handleOpen);
+    }
 
     conn.on('data', (raw: any) => {
       const msg = raw as NetMessage;
@@ -264,6 +271,12 @@ export class P2PManager {
   private handleMessage(msg: NetMessage): void {
     switch (msg.type) {
       case 'HANDSHAKE':
+        // Acknowledge with own profile so both sides are guaranteed connected
+        this.send({ type: 'HANDSHAKE_ACK', profile: this.localProfile });
+        this.events.onConnected(msg.profile);
+        break;
+
+      case 'HANDSHAKE_ACK':
         this.events.onConnected(msg.profile);
         break;
 

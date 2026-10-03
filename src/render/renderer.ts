@@ -26,7 +26,8 @@ export type MatchOverlayState =
   | { type: 'LOCAL_CRASHED_SPECTATING'; myDistance: number }
   | { type: 'VICTORY'; myDistance: number; rivalDistance: number; rivalName: string }
   | { type: 'DEFEAT'; myDistance: number; rivalDistance: number; rivalName: string }
-  | { type: 'TIE'; distance: number };
+  | { type: 'TIE'; distance: number }
+  | { type: 'SOLO_GAME_OVER'; distance: number; highScore: number };
 
 export class DoubleTrackRenderer {
   private canvas: HTMLCanvasElement;
@@ -54,7 +55,8 @@ export class DoubleTrackRenderer {
     localPlayer: PlayerVisualState,
     remotePlayer: PlayerVisualState | null,
     overlay: MatchOverlayState | null = null,
-    isRivalEliminated: boolean = false
+    isRivalEliminated: boolean = false,
+    isSolo: boolean = false
   ): void {
     const ctx = this.ctx;
     ctx.imageSmoothingEnabled = false;
@@ -89,8 +91,8 @@ export class DoubleTrackRenderer {
     // 3. Middle Divider (Subtle minimalist line)
     this.drawDivider();
 
-    // 4. Draw Track 2 (Bottom Track - Player 2 / Rival or Bot)
-    if (remotePlayer) {
+    // 4. Draw Track 2 (Bottom Track - Player 2 / Rival or Solo)
+    if (remotePlayer && !isSolo) {
       const isBot = remotePlayer.name.includes('BOT');
       this.drawTrack(
         this.track2GroundY,
@@ -103,10 +105,10 @@ export class DoubleTrackRenderer {
         isCountdown
       );
     } else {
-      this.drawWaitingTrack(this.track2GroundY);
+      this.drawWaitingTrack(this.track2GroundY, isSolo);
     }
 
-    // 5. Overlays: Asymmetric Game Over / Spectating / Victory
+    // 5. Overlays: Asymmetric Game Over / Spectating / Victory / Solo
     if (overlay) {
       switch (overlay.type) {
         case 'COUNTDOWN':
@@ -123,6 +125,9 @@ export class DoubleTrackRenderer {
           break;
         case 'TIE':
           this.drawTieOverlay(overlay.distance);
+          break;
+        case 'SOLO_GAME_OVER':
+          this.drawSoloGameOverOverlay(overlay.distance, overlay.highScore);
           break;
       }
     }
@@ -365,7 +370,7 @@ export class DoubleTrackRenderer {
     }
   }
 
-  private drawWaitingTrack(groundY: number): void {
+  private drawWaitingTrack(groundY: number, isSolo: boolean = false): void {
     const ctx = this.ctx;
     ctx.strokeStyle = '#3c4043';
     ctx.lineWidth = 2;
@@ -377,7 +382,11 @@ export class DoubleTrackRenderer {
     ctx.fillStyle = '#70757a';
     ctx.font = '12px "Press Start 2P", monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('ESPERANDO AL RIVAL EN LA SALA...', this.vWidth / 2, groundY - 90);
+    if (isSolo) {
+      ctx.fillText('MODO EN SOLITARIO', this.vWidth / 2, groundY - 90);
+    } else {
+      ctx.fillText('ESPERANDO AL RIVAL EN LA SALA...', this.vWidth / 2, groundY - 90);
+    }
   }
 
   private drawCountdownOverlay(text: string): void {
@@ -523,5 +532,32 @@ export class DoubleTrackRenderer {
     ctx.fillStyle = '#70757a';
     ctx.font = '11px "Press Start 2P", monospace';
     ctx.fillText('PULSA REVANCHA PARA EL DESEMPATE', this.vWidth / 2, this.vHeight / 2 + 60);
+  }
+
+  private drawSoloGameOverOverlay(distance: number, highScore: number): void {
+    const ctx = this.ctx;
+    ctx.fillStyle = 'rgba(32, 33, 36, 0.88)';
+    ctx.fillRect(0, 0, this.vWidth, this.vHeight);
+
+    ctx.fillStyle = '#e74c3c';
+    ctx.font = 'bold 36px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('G A M E   O V E R', this.vWidth / 2, this.vHeight / 2 - 70);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '14px "Press Start 2P", monospace';
+    ctx.fillText(`DISTANCIA: ${distance} METROS`, this.vWidth / 2, this.vHeight / 2 - 20);
+
+    if (highScore > 0) {
+      ctx.fillStyle = distance >= highScore ? '#f1c40f' : '#acacac';
+      ctx.font = '11px "Press Start 2P", monospace';
+      const recordLabel = distance >= highScore ? '¡NUEVO RECORD PERSONAL!' : `RECORD: ${highScore} METROS`;
+      ctx.fillText(recordLabel, this.vWidth / 2, this.vHeight / 2 + 15);
+    }
+
+    ctx.fillStyle = '#70757a';
+    ctx.font = '10px "Press Start 2P", monospace';
+    ctx.fillText('PULSA [ESPACIO / ENTER] O [JUGAR DE NUEVO]', this.vWidth / 2, this.vHeight / 2 + 65);
   }
 }

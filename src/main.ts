@@ -1,7 +1,6 @@
 import { SpriteManager, SKINS } from './render/sprites';
 import { GameEngine } from './core/game-engine';
 import { DinoAction } from './core/physics';
-import { DinoBot } from './core/bot';
 import { DoubleTrackRenderer, PlayerVisualState, MatchOverlayState } from './render/renderer';
 import { P2PManager, PlayerProfile } from './net/p2p';
 import {
@@ -54,9 +53,9 @@ class DinoApp {
     isDead: false,
   };
 
-  // Bot Mode
-  private isBotMode = false;
-  private bot: DinoBot | null = null;
+  // Solo Mode
+  private isSoloMode = false;
+  private soloHighScore: number = parseInt(localStorage.getItem('dino_solo_highscore') || '0', 10);
 
   // Game Engine & State
   private localEngine!: GameEngine;
@@ -68,7 +67,6 @@ class DinoApp {
   private matchOverlay: MatchOverlayState | null = null;
   private localDeathDistance: number | null = null;
   private remoteDeathDistance: number | null = null;
-  private botDeathDistance: number | null = null;
 
   // UI Elements
   private lobbyScreen = document.getElementById('lobby-screen')!;
@@ -88,8 +86,8 @@ class DinoApp {
 
   private createRoomBtn = document.getElementById('create-room-btn')!;
   private showJoinBtn = document.getElementById('show-join-btn')!;
-  private playBotBtn = document.getElementById('play-bot-btn')!;
-  private botReturnGameBtn = document.getElementById('bot-return-game-btn');
+  private playSoloBtn = document.getElementById('play-solo-btn')!;
+  private soloReturnGameBtn = document.getElementById('solo-return-game-btn');
 
   private displayRoomCode = document.getElementById('display-room-code')!;
   private displayRoomChip = document.getElementById('display-room-chip');
@@ -142,7 +140,6 @@ class DinoApp {
   private localWantsRematch = false;
   private remoteWantsRematch = false;
   private remoteInLobby = false;
-  private botRematchTimer: number | null = null;
   private hasPlayedMatchWithCurrentRival = false;
   private remoteDisconnectedDuringMatch = false;
 
@@ -220,13 +217,9 @@ class DinoApp {
     if (roomParam) {
       const code = roomParam.trim().toUpperCase();
       this.roomCodeInput.value = code;
-      const hostRoom = localStorage.getItem('dino_active_host_room');
       const isHostTab = sessionStorage.getItem('dino_host_tab') === code;
 
-      if (hostRoom && hostRoom === code && !isHostTab) {
-        this.showError('No puedes unirte a tu propia sala desde el mismo navegador.');
-        window.history.replaceState({}, '', window.location.pathname);
-      } else if (isHostTab) {
+      if (isHostTab) {
         // Tab was refreshed by host: peer connection was dropped by reload
         window.history.replaceState({}, '', window.location.pathname);
         sessionStorage.removeItem('dino_host_tab');
@@ -297,15 +290,7 @@ class DinoApp {
     if (!this.isMatchRunning || this.localEngine.isGameOver) return;
     this.localEngine.update(dt);
 
-    if (this.isBotMode && this.bot) {
-      this.bot.update(dt);
-      if (this.bot.engine.isGameOver && this.botDeathDistance === null) {
-        this.botDeathDistance = Math.floor(this.bot.engine.distance);
-        if (this.localEngine.isGameOver && this.localDeathDistance !== null) {
-          this.evaluateMatchWinner();
-        }
-      }
-    } else {
+    if (!this.isSoloMode) {
       if (Date.now() - this.lastNetworkSendTime > 33) {
         this.sendStateNow();
       }
@@ -316,16 +301,8 @@ class DinoApp {
     this.localEngine.onCollision = (score, distance) => {
       this.localDeathDistance = Math.floor(distance);
 
-      if (this.isBotMode && this.bot) {
-        if (this.bot.engine.isGameOver && this.botDeathDistance !== null) {
-          this.evaluateMatchWinner();
-        } else {
-          // Local crashed, but bot is still running -> spectator mode!
-          this.matchOverlay = {
-            type: 'LOCAL_CRASHED_SPECTATING',
-            myDistance: this.localDeathDistance,
-          };
-        }
+      if (this.isSoloMode) {
+        this.handleSoloGameOver();
         return;
       }
 
@@ -345,6 +322,52 @@ class DinoApp {
     };
   }
 
+  private handleSoloGameOver(): void {
+    const myDist = this.localDeathDistance || 0;
+    const isNewRecord = myDist > this.soloHighScore;
+    if (isNewRecord) {
+      this.soloHighScore = myDist;
+      localStorage.setItem('dino_solo_highscore', this.soloHighScore.toString());
+    }
+
+    this.matchOverlay = {
+      type: 'SOLO_GAME_OVER',
+      distance: myDist,
+      highScore: this.soloHighScore,
+    };
+
+    this.modalResultTitle.textContent = 'G A M E   O V E R';
+    this.modalResultTitle.style.color = '#e74c3c';
+    this.modalResultSub.textContent = 'PARTIDA EN SOLITARIO FINALIZADA';
+    this.modalResultIcon.src = '/icons/close.svg';
+    this.modalScoresLine.textContent = `DISTANCIA: ${myDist} METROS`;
+
+    if (isNewRecord && myDist > 0) {
+      this.modalDiffBadge.textContent = '¡NUEVO RECORD PERSONAL!';
+      this.modalDiffBadge.style.color = '#f1c40f';
+    } else if (this.soloHighScore > 0) {
+      this.modalDiffBadge.textContent = `RECORD: ${this.soloHighScore} METROS`;
+      this.modalDiffBadge.style.color = '#acacac';
+    } else {
+      this.modalDiffBadge.textContent = '';
+    }
+
+    this.modalRematchBtn.classList.remove('hidden');
+    this.modalRematchText.textContent = 'JUGAR DE NUEVO';
+    this.modalRematchStatus.classList.add('hidden');
+
+    const toLobbyBtn = this.modalToLobbyBtn as HTMLButtonElement;
+    if (toLobbyBtn) {
+      toLobbyBtn.disabled = false;
+      toLobbyBtn.classList.remove('btn-disabled');
+      toLobbyBtn.textContent = 'IR AL LOBBY';
+      toLobbyBtn.classList.remove('hidden');
+    }
+
+    this.updateScoreboardDisplays();
+    this.resultModal.classList.remove('hidden');
+  }
+
   private evaluateMatchWinner(): void {
     if (this.remoteDisconnectedDuringMatch) {
       this.remoteDisconnectedDuringMatch = false;
@@ -352,10 +375,9 @@ class DinoApp {
       return;
     }
 
-    const isBot = this.isBotMode;
-    const rawRivalName = isBot ? 'BOT' : this.remoteProfile?.name || 'Rival';
+    const rawRivalName = this.remoteProfile?.name || 'Rival';
     const rivalName = sanitizeTextNoEmojis(rawRivalName) || 'Rival';
-    const rivalDist = isBot ? this.botDeathDistance || 0 : this.remoteDeathDistance || 0;
+    const rivalDist = this.remoteDeathDistance || 0;
     const myDist = this.localDeathDistance || 0;
 
     const comp = formatMatchComparison(myDist, rivalDist, rivalName);
@@ -601,9 +623,7 @@ class DinoApp {
     this.currentSeed = seed;
     this.localEngine.reset(seed);
 
-    if (this.isBotMode && this.bot) {
-      this.bot.reset(seed);
-    } else {
+    if (!this.isSoloMode) {
       this.remoteState = {
         y: 0,
         vy: 0,
@@ -613,21 +633,16 @@ class DinoApp {
         score: 0,
         isDead: false,
       };
+      this.hasPlayedMatchWithCurrentRival = true;
     }
 
-    this.hasPlayedMatchWithCurrentRival = true;
     this.remoteDisconnectedDuringMatch = false;
     this.matchOverlay = null;
     this.localDeathDistance = null;
     this.remoteDeathDistance = null;
-    this.botDeathDistance = null;
     this.localWantsRematch = false;
     this.remoteWantsRematch = false;
     this.remoteInLobby = false;
-    if (this.botRematchTimer) {
-      clearTimeout(this.botRematchTimer);
-      this.botRematchTimer = null;
-    }
     const toLobbyBtn = this.modalToLobbyBtn as HTMLButtonElement;
     if (toLobbyBtn) {
       toLobbyBtn.disabled = false;
@@ -685,7 +700,7 @@ class DinoApp {
     // 4. Panel Navigation: Show Create Room View
     this.createRoomBtn.addEventListener('click', async () => {
       this.hideError();
-      this.isBotMode = false;
+      this.isSoloMode = false;
       this.hasPlayedMatchWithCurrentRival = false;
       this.remoteDisconnectedDuringMatch = false;
       this.sessionScore.reset();
@@ -761,29 +776,25 @@ class DinoApp {
         this.showError('Ingresa un código de 4 letras.');
         return;
       }
-      const hostRoom = localStorage.getItem('dino_active_host_room') || sessionStorage.getItem('active_host_room');
+      const hostRoom = sessionStorage.getItem('dino_host_tab');
       if (!canJoinRoom(code, hostRoom)) {
-        this.showError('No puedes unirte a tu propia sala desde el mismo navegador.');
+        this.showError('Ya eres el anfitrión de esta sala en esta pestaña.');
         return;
       }
       this.joinRoom(code);
     });
 
-    // 11. Bot Mode: Play Against Bot
-    this.playBotBtn.addEventListener('click', () => {
+    // 11. Solo Mode: Play Solo
+    this.playSoloBtn.addEventListener('click', () => {
       this.hideError();
-      if (!this.isBotMode) {
-        this.sessionScore.reset();
-      }
-      this.isBotMode = true;
-      const seed = Math.floor(Math.random() * 1000000);
-      const botEngine = new GameEngine(seed);
-      this.bot = new DinoBot(botEngine);
+      this.isSoloMode = true;
+      this.sessionScore.reset();
 
-      this.gameModeTag.textContent = 'MODO: BOT';
-      this.pingText.textContent = 'LOCAL: 0ms';
+      this.gameModeTag.textContent = 'MODO: EN SOLITARIO';
+      this.pingText.textContent = 'LOCAL';
       this.updateScoreboardDisplays();
 
+      const seed = Math.floor(Math.random() * 1000000);
       this.showGameScreen();
       this.startCountdown(seed, Date.now() + 5200); // 5-second countdown!
     });
@@ -843,7 +854,7 @@ class DinoApp {
       this.fullExitToMainMenu();
     });
 
-    // 20. Guest / Host / Bot Return to Game Buttons
+    // 20. Guest / Host / Solo Return to Game Buttons
     if (this.hostReturnGameBtn) {
       this.hostReturnGameBtn.addEventListener('click', () => {
         this.p2p.send({ type: 'PLAYER_READY_IN_LOBBY' });
@@ -862,13 +873,9 @@ class DinoApp {
       this.updateScoreboardDisplays();
     });
 
-    if (this.botReturnGameBtn) {
-      this.botReturnGameBtn.addEventListener('click', () => {
-        if (!this.bot) {
-          const seed = Math.floor(Math.random() * 1000000);
-          const botEngine = new GameEngine(seed);
-          this.bot = new DinoBot(botEngine);
-        }
+    if (this.soloReturnGameBtn) {
+      this.soloReturnGameBtn.addEventListener('click', () => {
+        this.isSoloMode = true;
         const seed = Math.floor(Math.random() * 1000000);
         this.showGameScreen();
         this.startCountdown(seed, Date.now() + 5200);
@@ -877,7 +884,16 @@ class DinoApp {
   }
 
   private updateScoreboardDisplays(): void {
-    const rawRivalName = this.isBotMode ? 'BOT' : this.remoteProfile?.name || 'RIVAL';
+    if (this.isSoloMode) {
+      const best = this.soloHighScore > 0 ? `RÉCORD: ${this.soloHighScore}m` : 'EN SOLITARIO';
+      this.sessionScoreTag.textContent = best;
+      this.modalSeriesBadge.textContent = best;
+      this.hostScoreBadge.classList.add('hidden');
+      this.guestScoreBadge.classList.add('hidden');
+      return;
+    }
+
+    const rawRivalName = this.remoteProfile?.name || 'RIVAL';
     const rivalName = sanitizeTextNoEmojis(rawRivalName) || 'RIVAL';
     const summary = this.sessionScore.formatBadge(this.profile.name, rivalName);
     this.sessionScoreTag.textContent = summary;
@@ -914,39 +930,23 @@ class DinoApp {
   }
 
   private handleRematchClick(): void {
+    if (this.isSoloMode) {
+      this.resultModal.classList.add('hidden');
+      const seed = Math.floor(Math.random() * 1000000);
+      this.startCountdown(seed, Date.now() + 5200);
+      return;
+    }
+
     if (this.localWantsRematch) {
       // User is canceling their rematch request
       this.localWantsRematch = false;
       this.updateRematchModalView();
-
-      if (this.isBotMode) {
-        if (this.botRematchTimer) {
-          clearTimeout(this.botRematchTimer);
-          this.botRematchTimer = null;
-        }
-        return;
-      }
-
       this.p2p.send({ type: 'CANCEL_REMATCH' });
       return;
     }
 
     this.localWantsRematch = true;
     this.updateRematchModalView();
-
-    if (this.isBotMode) {
-      this.botRematchTimer = window.setTimeout(() => {
-        if (!this.localWantsRematch) return;
-        this.remoteWantsRematch = true;
-        this.updateRematchModalView();
-        setTimeout(() => {
-          if (!this.localWantsRematch) return;
-          const newSeed = Math.floor(Math.random() * 1000000);
-          this.startCountdown(newSeed, Date.now() + 5200);
-        }, 300);
-      }, 500);
-      return;
-    }
 
     // Multiplayer
     this.p2p.send({ type: 'REMATCH_READY' });
@@ -974,12 +974,12 @@ class DinoApp {
 
     this.updateScoreboardDisplays();
 
-    if (this.isBotMode) {
+    if (this.isSoloMode) {
       this.roomMenuView.classList.remove('hidden');
       this.hostRoomView.classList.add('hidden');
       this.joinRoomView.classList.add('hidden');
       this.guestRoomView.classList.add('hidden');
-      if (this.botReturnGameBtn) this.botReturnGameBtn.classList.remove('hidden');
+      if (this.soloReturnGameBtn) this.soloReturnGameBtn.classList.remove('hidden');
       return;
     }
 
@@ -1039,8 +1039,7 @@ class DinoApp {
 
   private fullExitToMainMenu(): void {
     this.p2p.cleanup();
-    this.isBotMode = false;
-    this.bot = null;
+    this.isSoloMode = false;
     this.remoteProfile = null;
     this.sessionScore.reset();
     this.localWantsRematch = false;
@@ -1069,7 +1068,7 @@ class DinoApp {
     this.guestScoreBadge.classList.add('hidden');
     this.hostStartBtn.classList.add('hidden');
     if (this.hostReturnGameBtn) this.hostReturnGameBtn.classList.add('hidden');
-    if (this.botReturnGameBtn) this.botReturnGameBtn.classList.add('hidden');
+    if (this.soloReturnGameBtn) this.soloReturnGameBtn.classList.add('hidden');
     this.guestReadyBtn.classList.add('hidden');
     const toLobbyBtn = this.modalToLobbyBtn as HTMLButtonElement;
     if (toLobbyBtn) {
@@ -1084,7 +1083,6 @@ class DinoApp {
     this.matchOverlay = null;
     this.localDeathDistance = null;
     this.remoteDeathDistance = null;
-    this.botDeathDistance = null;
     this.physicsAccumulator = 0;
     this.lastFrameTime = 0;
 
@@ -1099,13 +1097,13 @@ class DinoApp {
     this.hideError();
     const cleanCode = (code || '').trim().toUpperCase();
 
-    const hostRoom = localStorage.getItem('dino_active_host_room') || sessionStorage.getItem('active_host_room');
+    const hostRoom = sessionStorage.getItem('dino_host_tab');
     if (!canJoinRoom(cleanCode, hostRoom)) {
-      this.showError('No puedes unirte a tu propia sala desde el mismo navegador.');
+      this.showError('Ya eres el anfitrión de esta sala en esta pestaña.');
       return;
     }
 
-    this.isBotMode = false;
+    this.isSoloMode = false;
     this.sessionScore.reset();
     this.updateScoreboardDisplays();
     this.gameModeTag.textContent = `SALA: ${cleanCode}`;
@@ -1417,7 +1415,7 @@ class DinoApp {
   }
 
   private sendStateNow(): void {
-    if (!this.isMatchRunning || this.isBotMode) return;
+    if (!this.isMatchRunning || this.isSoloMode) return;
     this.p2p.send({
       type: 'STATE',
       y: this.localEngine.dino.y,
@@ -1507,20 +1505,7 @@ class DinoApp {
 
       let remoteVisual: PlayerVisualState | null = null;
 
-      if (this.isBotMode && this.bot) {
-        remoteVisual = {
-          name: 'BOT T-Rex',
-          color: '#acacac',
-          skinId: 'hurdles',
-          isLocal: false,
-          score: this.bot.engine.score,
-          distance: this.bot.engine.distance,
-          y: this.bot.engine.dino.y,
-          isDucking: this.bot.engine.dino.isDucking,
-          isGrounded: this.bot.engine.dino.isGrounded,
-          isDead: this.bot.engine.isGameOver,
-        };
-      } else if (this.remoteProfile) {
+      if (!this.isSoloMode && this.remoteProfile) {
         remoteVisual = {
           name: this.remoteProfile.name,
           color: this.remoteProfile.color,
@@ -1535,9 +1520,7 @@ class DinoApp {
         };
       }
 
-      const isRivalEliminated = this.isBotMode
-        ? !!(this.bot?.engine.isGameOver && !this.localEngine.isGameOver)
-        : !!(this.remoteState.isDead && !this.localEngine.isGameOver);
+      const isRivalEliminated = !this.isSoloMode && !!(this.remoteState.isDead && !this.localEngine.isGameOver);
 
       let currentOverlay: MatchOverlayState | null = this.matchOverlay;
       if (countdownText) {
@@ -1549,7 +1532,8 @@ class DinoApp {
         localVisual,
         remoteVisual,
         currentOverlay,
-        isRivalEliminated
+        isRivalEliminated,
+        this.isSoloMode
       );
     }
 

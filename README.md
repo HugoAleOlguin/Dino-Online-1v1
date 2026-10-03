@@ -156,7 +156,7 @@ npm test
 - `tests/hitboxes.test.ts`: Siluetas multicaja de Chromium vs obstáculos.
 - `tests/events-physics.test.ts`: Eventos aleatorios, saltos cortos y caídas rápidas.
 - `tests/game-engine.test.ts`: Aceleración y colisiones deterministas.
-- `tests/bot.test.ts`: IA de salto y evasión de obstáculos.
+- `tests/solo.test.ts`: Flujo de juego en solitario y fin de partida inmediato.
 
 ---
 
