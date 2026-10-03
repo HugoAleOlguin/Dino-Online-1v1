@@ -1,3 +1,5 @@
+import { SpriteRect, SkinAnimationSet } from './sprites';
+
 export interface DinoBadgeParams {
   groundY: number;
   dinoHeight: number;
@@ -61,4 +63,51 @@ export function formatMatchComparison(
     diffText,
     detailText,
   };
+}
+
+export interface DinoFrameResolution {
+  spriteRect: SpriteRect;
+  renderWidth: number;
+  renderHeight: number;
+}
+
+/**
+ * Resolves the authentic, pixel-accurate 1:1 sprite frame for a dinosaur.
+ * Preserves un-stretched, un-deformed sprite dimensions for both running and ducking,
+ * ensuring the dinosaur uses its authentic skin animation without changing scale/size artificially.
+ */
+export function resolveDinoRenderFrame(
+  skin: SkinAnimationSet,
+  isDead: boolean,
+  isDucking: boolean,
+  isGrounded: boolean,
+  distance: number
+): DinoFrameResolution {
+  const runStep = Math.floor(distance / 24) % 2;
+
+  let spriteRect: SpriteRect;
+  if (isDead) {
+    spriteRect = skin.dead;
+  } else if (isDucking) {
+    // Both on ground and in air: play the dedicated ducking animation frames
+    spriteRect = skin.duck[runStep] || skin.duck[0];
+  } else if (!isGrounded) {
+    spriteRect = skin.idle;
+  } else {
+    spriteRect = skin.run[runStep] || skin.run[0];
+  }
+
+  return {
+    spriteRect,
+    renderWidth: spriteRect.w,
+    renderHeight: spriteRect.h,
+  };
+}
+
+/**
+ * Calculates continuous, authentic 2-frame wing flapping animation for flying obstacles (Pterodactyls).
+ * Alternates between wing frames every 180ms (~5.5 flaps per second).
+ */
+export function getPterodactylWingFrame(timeMs: number): number {
+  return Math.floor(timeMs / 180) % 2;
 }

@@ -1,7 +1,12 @@
 import { SpriteManager, SKINS, SkinAnimationSet, CHROMIUM_SPRITES } from './sprites';
 import { GameEngine } from '../core/game-engine';
 import { Obstacle } from '../core/obstacles';
-import { calculateDinoNameBadgePos, sanitizeTextNoEmojis } from './ui-helpers';
+import {
+  calculateDinoNameBadgePos,
+  sanitizeTextNoEmojis,
+  resolveDinoRenderFrame,
+  getPterodactylWingFrame,
+} from './ui-helpers';
 
 export interface PlayerVisualState {
   name: string;
@@ -232,22 +237,16 @@ export class DoubleTrackRenderer {
     const skin: SkinAnimationSet = SKINS[player.skinId] || SKINS.classic;
     const img = this.spriteManager.getImage('/dino-skins.png') || this.spriteManager.getImage('/dino-classic.png');
 
-    // Natural running cadence: legs alternate every 24 pixels of track distance
-    const runStep = Math.floor(player.distance / 24) % 2;
-
-    let spriteRect = skin.idle;
-    if (player.isDead) {
-      spriteRect = skin.dead;
-    } else if (!player.isGrounded) {
-      spriteRect = skin.idle; // in air
-    } else if (player.isDucking) {
-      spriteRect = skin.duck[runStep] || skin.duck[0];
-    } else {
-      spriteRect = skin.run[runStep] || skin.run[0];
-    }
-
-    const renderHeight = player.isDucking ? skin.duckHeight : skin.targetHeight;
-    const renderWidth = Math.round((spriteRect.w / spriteRect.h) * renderHeight);
+    const resolved = resolveDinoRenderFrame(
+      skin,
+      player.isDead,
+      player.isDucking,
+      player.isGrounded,
+      player.distance
+    );
+    const spriteRect = resolved.spriteRect;
+    const renderWidth = resolved.renderWidth;
+    const renderHeight = resolved.renderHeight;
     const screenY = groundY - renderHeight - player.y;
 
     if (img) {
@@ -326,10 +325,10 @@ export class DoubleTrackRenderer {
         ctx.drawImage(img, s.x, s.y, s.w, s.h, screenX, screenY, s.w, s.h);
         return;
       } else {
-        // Pterodactyl wings flap at calm rhythm (every 40px of distance)
-        const wingFrame = Math.floor(obs.x / 40) % 2;
+        // Pterodactyl wings flap at authentic cadence (alternating every 180ms)
+        const wingFrame = getPterodactylWingFrame(Date.now());
         const s = CHROMIUM_SPRITES.PTERODACTYL[wingFrame] || CHROMIUM_SPRITES.PTERODACTYL[0];
-        ctx.drawImage(img, s.x, s.y, s.w, s.h, screenX, screenY, 46, 40);
+        ctx.drawImage(img, s.x, s.y, s.w, s.h, screenX, screenY, s.w, s.h);
         return;
       }
     }
@@ -352,7 +351,7 @@ export class DoubleTrackRenderer {
       ctx.fillRect(screenX + 8, screenY, 8, 50);
       ctx.fillRect(screenX + 15, screenY + 10, 10, 38);
     } else {
-      const wingFrame = Math.floor(obs.x / 40) % 2;
+      const wingFrame = getPterodactylWingFrame(Date.now());
       ctx.fillRect(screenX + 2, screenY + 14, 4, 3);
       ctx.fillRect(screenX + 6, screenY + 10, 4, 7);
       ctx.fillRect(screenX + 10, screenY + 8, 6, 9);

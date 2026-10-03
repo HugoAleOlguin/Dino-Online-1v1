@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { calculateDinoNameBadgePos, formatMatchComparison, sanitizeTextNoEmojis } from '../src/render/ui-helpers';
+import {
+  calculateDinoNameBadgePos,
+  formatMatchComparison,
+  sanitizeTextNoEmojis,
+  resolveDinoRenderFrame,
+  getPterodactylWingFrame,
+} from '../src/render/ui-helpers';
+import { SKINS } from '../src/render/sprites';
 
 describe('In-game UI Helpers & Nick Badge', () => {
   it('calculates name badge position strictly above the dino without covering/obscuring it', () => {
@@ -74,4 +81,59 @@ describe('In-game UI Helpers & Nick Badge', () => {
     expect(defeatComparison.diffText).toBe('-220 METROS DE DIFERENCIA');
     expect(defeatComparison.detailText).toBe('TÚ: 320 m   vs   Bot: 540 m');
   });
+
+  it('renders authentic 1:1 ducking animation frames without scaling or squashing the dinosaur', () => {
+    const classicSkin = SKINS.classic;
+
+    // 1. Normal running on ground: native 1:1 dimensions (44x47)
+    const runningFrame = resolveDinoRenderFrame(classicSkin, false, false, true, 100);
+    expect(runningFrame.renderWidth).toBe(44);
+    expect(runningFrame.renderHeight).toBe(47);
+    expect(runningFrame.spriteRect).toEqual(classicSkin.run[0]);
+
+    // 2. Ducking on ground: native 1:1 dimensions (59x30), NOT squashed
+    const duckingGround = resolveDinoRenderFrame(classicSkin, false, true, true, 100);
+    expect(duckingGround.renderWidth).toBe(59);
+    expect(duckingGround.renderHeight).toBe(30);
+    expect(duckingGround.spriteRect).toEqual(classicSkin.duck[0]);
+
+    // 3. Ducking in mid-air (fast fall): displays authentic ducking frame at 1:1 (59x30), NOT squashed idle (28x30)
+    const duckingAir = resolveDinoRenderFrame(classicSkin, false, true, false, 100);
+    expect(duckingAir.renderWidth).toBe(59);
+    expect(duckingAir.renderHeight).toBe(30);
+    expect(duckingAir.spriteRect).toEqual(classicSkin.duck[0]);
+
+    // 4. Jumping without ducking: normal idle in air (44x47)
+    const jumpingNormal = resolveDinoRenderFrame(classicSkin, false, false, false, 100);
+    expect(jumpingNormal.renderWidth).toBe(44);
+    expect(jumpingNormal.renderHeight).toBe(47);
+    expect(jumpingNormal.spriteRect).toEqual(classicSkin.idle);
+
+    // 5. Custom skin (Party skin): preserves skin-specific ducking frame (59x43)
+    const partySkin = SKINS.party;
+    const partyDucking = resolveDinoRenderFrame(partySkin, false, true, true, 100);
+    expect(partyDucking.renderWidth).toBe(59);
+    expect(partyDucking.renderHeight).toBe(43);
+    expect(partyDucking.spriteRect).toEqual(partySkin.duck[0]);
+  });
+
+  it('alternates pterodactyl wing frames smoothly over time', () => {
+    // Frame 0 at start
+    expect(getPterodactylWingFrame(0)).toBe(0);
+    expect(getPterodactylWingFrame(100)).toBe(0);
+    expect(getPterodactylWingFrame(179)).toBe(0);
+
+    // Frame 1 after 180ms
+    expect(getPterodactylWingFrame(180)).toBe(1);
+    expect(getPterodactylWingFrame(250)).toBe(1);
+    expect(getPterodactylWingFrame(359)).toBe(1);
+
+    // Frame 0 after 360ms
+    expect(getPterodactylWingFrame(360)).toBe(0);
+    expect(getPterodactylWingFrame(500)).toBe(0);
+
+    // Continuous 2-frame flapping
+    expect(getPterodactylWingFrame(540)).toBe(1);
+  });
 });
+
