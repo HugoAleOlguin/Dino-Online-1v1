@@ -11,6 +11,7 @@ import {
   formatCleanRoomUrl,
   getHostLobbyButtonsState,
   planDisconnectHandling,
+  formatP2PErrorMessage,
 } from './core/lobby-helpers';
 
 // Authentic Chrome Dino Palette
@@ -461,6 +462,15 @@ class DinoApp {
         this.updateLobbyCards();
 
         if (this.p2p.isHost) {
+          if (this.gameScreen.classList.contains('active')) {
+            this.gameScreen.classList.remove('active');
+            this.lobbyScreen.classList.add('active');
+            this.resultModal.classList.add('hidden');
+            this.roomMenuView.classList.add('hidden');
+            this.joinRoomView.classList.add('hidden');
+            this.guestRoomView.classList.add('hidden');
+            this.hostRoomView.classList.remove('hidden');
+          }
           // Host remains in lobby waiting room and can start when ready!
           this.hostStatusBox.innerHTML = `¡Rival conectado: <strong style="color: ${remoteProfile.color || '#fff'}">${remoteProfile.name}</strong>!`;
           this.hostStartBtn.classList.remove('hidden');
@@ -575,7 +585,8 @@ class DinoApp {
       },
 
       onError: (err) => {
-        this.showError(err);
+        const friendlyMsg = formatP2PErrorMessage(err);
+        this.showError(friendlyMsg);
       },
     });
   }
@@ -992,12 +1003,26 @@ class DinoApp {
         if (this.hostReturnGameBtn) this.hostReturnGameBtn.classList.add('hidden');
         this.hostStatusBox.innerHTML = '<span class="pulsing-dot"></span> Esperando a que el rival entre con el enlace...';
       } else {
-        // Active match: Host CANNOT start a new game from lobby. Must return to game and rematch!
-        this.hostStartBtn.classList.add('hidden');
-        if (this.hostReturnGameBtn) this.hostReturnGameBtn.classList.remove('hidden');
+        const btnState = getHostLobbyButtonsState(true, this.hasPlayedMatchWithCurrentRival);
+        if (btnState.showStartBtn) {
+          this.hostStartBtn.classList.remove('hidden');
+        } else {
+          this.hostStartBtn.classList.add('hidden');
+        }
+        if (this.hostReturnGameBtn) {
+          if (btnState.showReturnGameBtn) {
+            this.hostReturnGameBtn.classList.remove('hidden');
+          } else {
+            this.hostReturnGameBtn.classList.add('hidden');
+          }
+        }
         const rivalName = this.remoteProfile?.name || 'Rival';
         const rivalColor = this.remoteProfile?.color || '#fff';
-        this.hostStatusBox.innerHTML = `En sala con <strong style="color: ${rivalColor}">${rivalName}</strong>. Cambia tu skin o color y pulsa VOLVER AL JUEGO para dar revancha.`;
+        if (this.hasPlayedMatchWithCurrentRival) {
+          this.hostStatusBox.innerHTML = `En sala con <strong style="color: ${rivalColor}">${rivalName}</strong>. Cambia tu skin o color y pulsa VOLVER AL JUEGO para dar revancha.`;
+        } else {
+          this.hostStatusBox.innerHTML = `¡Rival conectado: <strong style="color: ${rivalColor}">${rivalName}</strong>! Pulsa INICIAR PARTIDA cuando ambos estén listos.`;
+        }
       }
     } else {
       if (!this.remoteProfile) {
@@ -1100,9 +1125,10 @@ class DinoApp {
 
     try {
       await this.p2p.joinRoom(cleanCode);
-    } catch {
-      this.showError('No se pudo conectar a la sala.');
+    } catch (err: unknown) {
       this.fullExitToMainMenu();
+      const msg = formatP2PErrorMessage(err);
+      this.showError(msg);
     }
   }
 

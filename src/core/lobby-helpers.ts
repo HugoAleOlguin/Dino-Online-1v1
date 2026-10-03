@@ -83,3 +83,56 @@ export function planDisconnectHandling(
     canRematch: false,
   };
 }
+
+/**
+ * Formats P2P connection errors into user-friendly Spanish messages.
+ * Prevents raw technical English errors (e.g., 'Could not connect to peer ...') from showing in the UI.
+ */
+export function formatP2PErrorMessage(err: unknown): string {
+  if (!err) return 'Error de conexión';
+
+  let type = '';
+  let msg = '';
+
+  if (typeof err === 'string') {
+    msg = err;
+  } else if (typeof err === 'object' && err !== null) {
+    const record = err as Record<string, unknown>;
+    type = typeof record.type === 'string' ? record.type : '';
+    msg = typeof record.message === 'string' ? record.message : String(err);
+  }
+
+  const lowerMsg = msg.toLowerCase();
+  const lowerType = type.toLowerCase();
+
+  if (
+    lowerType === 'peer-unavailable' ||
+    lowerMsg.includes('could not connect to peer') ||
+    lowerMsg.includes('peer-unavailable')
+  ) {
+    return 'No se pudo conectar a la sala. Es posible que el anfitrión haya cerrado la sala o el código sea incorrecto.';
+  }
+
+  if (
+    lowerType === 'unavailable-id' ||
+    lowerMsg.includes('id taken') ||
+    lowerMsg.includes('unavailable-id')
+  ) {
+    return 'El código de sala ya está en uso. Intenta crear otra sala.';
+  }
+
+  if (
+    lowerType === 'network' ||
+    lowerType === 'server-error' ||
+    lowerMsg.includes('lost connection to server') ||
+    lowerMsg.includes('network error')
+  ) {
+    return 'Error de conexión con el servidor. Revisa tu conexión a internet.';
+  }
+
+  if (lowerMsg.includes('tiempo de espera') || lowerMsg.includes('timeout')) {
+    return 'Tiempo de espera agotado al conectar a la sala.';
+  }
+
+  return msg || 'Error de conexión';
+}

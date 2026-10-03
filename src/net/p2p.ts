@@ -1,4 +1,5 @@
 import { Peer, DataConnection } from 'peerjs';
+import { formatP2PErrorMessage } from '../core/lobby-helpers';
 
 export interface PlayerProfile {
   name: string;
@@ -79,6 +80,10 @@ export class P2PManager {
     return !!(this.connection && this.connection.open);
   }
 
+  get hasActivePeer(): boolean {
+    return !!(this.peer && !this.peer.destroyed);
+  }
+
   /**
    * Host creates a room with an easy-to-type 4-letter alphanumeric code.
    */
@@ -104,12 +109,28 @@ export class P2PManager {
         resolve(code);
       });
 
+      this.peer.on('disconnected', () => {
+        // Auto-reconnect host peer to signaling broker if socket dropped
+        if (this.isHost && this.peer && !this.peer.destroyed) {
+          try {
+            this.peer.reconnect();
+          } catch {}
+        }
+      });
+
       this.peer.on('error', (err) => {
-        this.events.onError(err.message || 'Error de conexión');
+        const friendlyMsg = formatP2PErrorMessage(err);
+        this.events.onError(friendlyMsg);
         reject(err);
       });
 
       this.peer.on('connection', (conn) => {
+        if (this.connection) {
+          try {
+            this.connection.close();
+          } catch {}
+          this.connection = null;
+        }
         this.setupConnection(conn);
       });
     });
@@ -125,30 +146,79 @@ export class P2PManager {
     const fullPeerId = `dino1v1-${this.roomId}`;
 
     return new Promise((resolve, reject) => {
-      this.peer = new Peer({
-        config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:global.stun.twilio.com:3478' },
-          ],
-        },
-      });
+      let isSettled = false;
+      let timeoutId: any = null;
+
+      const safeReject = (err: unknown) => {
+        if (isSettled) return;
+        isSettled = true;
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        const friendlyMsg = formatP2PErrorMessage(err);
+        this.cleanup();
+        this.events.onError(friendlyMsg);
+        reject(new Error(friendlyMsg));
+      };
+
+      const safeResolve = () => {
+        if (isSettled) return;
+        isSettled = true;
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        resolve();
+      };
+
+      timeoutId = setTimeout(() => {
+        safeReject(new Error('Tiempo de espera agotado al conectar a la sala.'));
+      }, 10000);
+
+      try {
+        this.peer = new Peer({
+          config: {
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:global.stun.twilio.com:3478' },
+            ],
+          },
+        });
+      } catch (err) {
+        safeReject(err);
+        return;
+      }
 
       this.peer.on('open', () => {
-        if (!this.peer) return;
-        const conn = this.peer.connect(fullPeerId, { reliable: true });
-        this.setupConnection(conn);
-        resolve();
+        if (!this.peer || isSettled) return;
+        try {
+          const conn = this.peer.connect(fullPeerId, { reliable: true });
+          conn.on('error', (err) => {
+            if (!isSettled) {
+              safeReject(err);
+            }
+          });
+          this.setupConnection(conn, () => {
+            safeResolve();
+          });
+        } catch (err) {
+          safeReject(err);
+        }
       });
 
       this.peer.on('error', (err) => {
-        this.events.onError(err.message || 'Error al unirse a la sala');
-        reject(err);
+        if (!isSettled) {
+          safeReject(err);
+        } else {
+          const friendlyMsg = formatP2PErrorMessage(err);
+          this.events.onError(friendlyMsg);
+        }
       });
     });
   }
 
-  private setupConnection(conn: DataConnection): void {
+  private setupConnection(conn: DataConnection, onOpen?: () => void): void {
     this.connection = conn;
 
     conn.on('open', () => {
@@ -157,6 +227,10 @@ export class P2PManager {
 
       // 2. Start ping interval
       this.startPing();
+
+      if (onOpen) {
+        onOpen();
+      }
     });
 
     conn.on('data', (raw: any) => {
@@ -165,12 +239,25 @@ export class P2PManager {
     });
 
     conn.on('close', () => {
+      if (this.pingInterval) {
+        clearInterval(this.pingInterval);
+        this.pingInterval = null;
+      }
+      if (this.connection === conn) {
+        this.connection = null;
+      }
       this.events.onDisconnected();
-      this.cleanup();
+
+      // Only destroy peer if we are NOT the host!
+      // Host keeps its peer alive and listening for new/reconnected rivals.
+      if (!this.isHost) {
+        this.cleanup();
+      }
     });
 
     conn.on('error', (err) => {
-      this.events.onError(err.message || 'Error en canal de datos');
+      const friendlyMsg = formatP2PErrorMessage(err);
+      this.events.onError(friendlyMsg);
     });
   }
 
@@ -283,12 +370,18 @@ export class P2PManager {
       this.pingInterval = null;
     }
     if (this.connection) {
-      this.connection.close();
+      try {
+        this.connection.close();
+      } catch {}
       this.connection = null;
     }
     if (this.peer) {
-      this.peer.destroy();
+      try {
+        this.peer.destroy();
+      } catch {}
       this.peer = null;
     }
+    this.isHost = false;
+    this.roomId = null;
   }
 }
