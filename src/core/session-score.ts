@@ -7,6 +7,7 @@ export interface RematchStateView {
   buttonText: string;
   statusText: string;
   isAllReady: boolean;
+  canGoToLobby: boolean;
 }
 
 export class SessionScoreTracker {
@@ -49,21 +50,24 @@ export class SessionScoreTracker {
         buttonText: '¡LISTOS! (2/2)',
         statusText: 'Iniciando partida sincronizada...',
         isAllReady: true,
+        canGoToLobby: false,
       };
     }
 
     if (localReady && !remoteReady) {
       if (remoteInLobby) {
         return {
-          buttonText: 'ESPERANDO RIVAL (1/2)',
+          buttonText: 'CANCELAR REVANCHA',
           statusText: 'El rival está en el lobby personalizando...',
           isAllReady: false,
+          canGoToLobby: false,
         };
       }
       return {
-        buttonText: 'ESPERANDO RIVAL (1/2)',
+        buttonText: 'CANCELAR REVANCHA',
         statusText: 'Esperando a que el rival confirme revancha...',
         isAllReady: false,
+        canGoToLobby: false,
       };
     }
 
@@ -72,6 +76,7 @@ export class SessionScoreTracker {
         buttonText: 'ACEPTAR REVANCHA (1/2)',
         statusText: '¡El rival quiere la revancha! Pulsa para aceptar (1/2)',
         isAllReady: false,
+        canGoToLobby: true,
       };
     }
 
@@ -80,6 +85,7 @@ export class SessionScoreTracker {
       buttonText: 'REVANCHA',
       statusText: remoteInLobby ? 'El rival está en el lobby personalizando.' : '',
       isAllReady: false,
+      canGoToLobby: true,
     };
   }
 }

@@ -23,6 +23,7 @@ export type NetMessage =
   | { type: 'DIED'; score: number; distance: number }
   | { type: 'REMATCH_REQUEST'; seed: number }
   | { type: 'REMATCH_READY'; seed?: number }
+  | { type: 'CANCEL_REMATCH' }
   | { type: 'PLAYER_IN_LOBBY' }
   | { type: 'PLAYER_READY_IN_LOBBY' }
   | { type: 'KICKED'; reason?: string }
@@ -45,6 +46,7 @@ export interface P2PEvents {
   onRemoteDied: (finalScore: number, distance: number) => void;
   onRematchRequested: (seed: number) => void;
   onRematchReady?: () => void;
+  onCancelRematch?: () => void;
   onRemoteInLobby?: () => void;
   onRemoteReadyInLobby?: () => void;
   onKicked?: (reason?: string) => void;
@@ -210,6 +212,12 @@ export class P2PManager {
       case 'REMATCH_READY':
         if (this.events.onRematchReady) {
           this.events.onRematchReady();
+        }
+        break;
+
+      case 'CANCEL_REMATCH':
+        if (this.events.onCancelRematch) {
+          this.events.onCancelRematch();
         }
         break;
 

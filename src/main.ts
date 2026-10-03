@@ -78,6 +78,7 @@ class DinoApp {
   private createRoomBtn = document.getElementById('create-room-btn')!;
   private showJoinBtn = document.getElementById('show-join-btn')!;
   private playBotBtn = document.getElementById('play-bot-btn')!;
+  private botReturnGameBtn = document.getElementById('bot-return-game-btn');
 
   private displayRoomCode = document.getElementById('display-room-code')!;
   private displayRoomChip = document.getElementById('display-room-chip');
@@ -87,6 +88,7 @@ class DinoApp {
   private copyFeedback = document.getElementById('copy-feedback')!;
   private copyFeedbackText = document.getElementById('copy-feedback-text');
   private hostStatusBox = document.getElementById('host-status-box')!;
+  private hostReturnGameBtn = document.getElementById('host-return-game-btn');
   private hostStartBtn = document.getElementById('host-start-btn') as HTMLButtonElement;
   private cancelRoomBtn = document.getElementById('cancel-room-btn')!;
 
@@ -129,6 +131,7 @@ class DinoApp {
   private localWantsRematch = false;
   private remoteWantsRematch = false;
   private remoteInLobby = false;
+  private botRematchTimer: number | null = null;
 
   private exitGameBtn = document.getElementById('exit-game-btn')!;
   private lobbyGameBtn = document.getElementById('lobby-game-btn')!;
@@ -477,6 +480,11 @@ class DinoApp {
         }
       },
 
+      onCancelRematch: () => {
+        this.remoteWantsRematch = false;
+        this.updateRematchModalView();
+      },
+
       onRemoteInLobby: () => {
         this.remoteInLobby = true;
         this.remoteWantsRematch = false;
@@ -488,8 +496,9 @@ class DinoApp {
 
       onRemoteReadyInLobby: () => {
         this.remoteInLobby = false;
+        this.updateRematchModalView();
         if (this.p2p.isHost) {
-          this.hostStatusBox.innerHTML = `¡<strong style="color: ${this.remoteProfile?.color || '#fff'}">${this.remoteProfile?.name || 'Rival'}</strong> está LISTO! Pulsa INICIAR PARTIDA.`;
+          this.hostStatusBox.innerHTML = `¡<strong style="color: ${this.remoteProfile?.color || '#fff'}">${this.remoteProfile?.name || 'Rival'}</strong> ha vuelto a la partida!`;
         }
       },
 
@@ -528,6 +537,15 @@ class DinoApp {
     this.localWantsRematch = false;
     this.remoteWantsRematch = false;
     this.remoteInLobby = false;
+    if (this.botRematchTimer) {
+      clearTimeout(this.botRematchTimer);
+      this.botRematchTimer = null;
+    }
+    const toLobbyBtn = this.modalToLobbyBtn as HTMLButtonElement;
+    if (toLobbyBtn) {
+      toLobbyBtn.disabled = false;
+      toLobbyBtn.classList.remove('btn-disabled');
+    }
     this.resultModal.classList.add('hidden');
     this.countdownEndTime = startTimestamp;
     this.isMatchRunning = false;
@@ -744,11 +762,37 @@ class DinoApp {
       this.fullExitToMainMenu();
     });
 
-    // 20. Guest Ready in Lobby Button
+    // 20. Guest / Host / Bot Return to Game Buttons
+    if (this.hostReturnGameBtn) {
+      this.hostReturnGameBtn.addEventListener('click', () => {
+        this.p2p.send({ type: 'PLAYER_READY_IN_LOBBY' });
+        this.showGameScreen();
+        this.resultModal.classList.remove('hidden');
+        this.updateRematchModalView();
+        this.updateScoreboardDisplays();
+      });
+    }
+
     this.guestReadyBtn.addEventListener('click', () => {
       this.p2p.send({ type: 'PLAYER_READY_IN_LOBBY' });
-      this.guestStatusBox.innerHTML = '<span class="pulsing-dot"></span> ¡Listo! Esperando a que el host inicie...';
+      this.showGameScreen();
+      this.resultModal.classList.remove('hidden');
+      this.updateRematchModalView();
+      this.updateScoreboardDisplays();
     });
+
+    if (this.botReturnGameBtn) {
+      this.botReturnGameBtn.addEventListener('click', () => {
+        if (!this.bot) {
+          const seed = Math.floor(Math.random() * 1000000);
+          const botEngine = new GameEngine(seed);
+          this.bot = new DinoBot(botEngine);
+        }
+        const seed = Math.floor(Math.random() * 1000000);
+        this.showGameScreen();
+        this.startCountdown(seed, Date.now() + 5200);
+      });
+    }
   }
 
   private updateScoreboardDisplays(): void {
@@ -776,25 +820,50 @@ class DinoApp {
     } else {
       this.modalRematchStatus.classList.add('hidden');
     }
+
+    const toLobbyBtn = this.modalToLobbyBtn as HTMLButtonElement;
+    if (toLobbyBtn) {
+      toLobbyBtn.disabled = !state.canGoToLobby;
+      if (!state.canGoToLobby) {
+        toLobbyBtn.classList.add('btn-disabled');
+      } else {
+        toLobbyBtn.classList.remove('btn-disabled');
+      }
+    }
   }
 
   private handleRematchClick(): void {
-    if (this.localWantsRematch) return; // Already ready, waiting
+    if (this.localWantsRematch) {
+      // User is canceling their rematch request
+      this.localWantsRematch = false;
+      this.updateRematchModalView();
+
+      if (this.isBotMode) {
+        if (this.botRematchTimer) {
+          clearTimeout(this.botRematchTimer);
+          this.botRematchTimer = null;
+        }
+        return;
+      }
+
+      this.p2p.send({ type: 'CANCEL_REMATCH' });
+      return;
+    }
 
     this.localWantsRematch = true;
     this.updateRematchModalView();
 
     if (this.isBotMode) {
-      // Simulate bot confirming rematch after 350ms
-      setTimeout(() => {
+      this.botRematchTimer = window.setTimeout(() => {
         if (!this.localWantsRematch) return;
         this.remoteWantsRematch = true;
         this.updateRematchModalView();
         setTimeout(() => {
+          if (!this.localWantsRematch) return;
           const newSeed = Math.floor(Math.random() * 1000000);
           this.startCountdown(newSeed, Date.now() + 5200);
         }, 300);
-      }, 350);
+      }, 500);
       return;
     }
 
@@ -810,6 +879,8 @@ class DinoApp {
   }
 
   private returnToLobbyFromGame(): void {
+    if (this.localWantsRematch) return; // Blocked if rematch was clicked!
+
     this.localWantsRematch = false;
     this.remoteWantsRematch = false;
     this.isMatchRunning = false;
@@ -827,6 +898,7 @@ class DinoApp {
       this.hostRoomView.classList.add('hidden');
       this.joinRoomView.classList.add('hidden');
       this.guestRoomView.classList.add('hidden');
+      if (this.botReturnGameBtn) this.botReturnGameBtn.classList.remove('hidden');
       return;
     }
 
@@ -839,9 +911,10 @@ class DinoApp {
       this.guestRoomView.classList.add('hidden');
       this.hostRoomView.classList.remove('hidden');
       this.hostStartBtn.classList.remove('hidden');
+      if (this.hostReturnGameBtn) this.hostReturnGameBtn.classList.remove('hidden');
       const rivalName = this.remoteProfile?.name || 'Rival';
       const rivalColor = this.remoteProfile?.color || '#fff';
-      this.hostStatusBox.innerHTML = `En sala con <strong style="color: ${rivalColor}">${rivalName}</strong>. Cambia tu skin o color y pulsa INICIAR PARTIDA cuando ambos estén listos.`;
+      this.hostStatusBox.innerHTML = `En sala con <strong style="color: ${rivalColor}">${rivalName}</strong>. Cambia tu skin o color y pulsa VOLVER AL JUEGO cuando estés listo.`;
     } else {
       this.roomMenuView.classList.add('hidden');
       this.joinRoomView.classList.add('hidden');
@@ -850,7 +923,7 @@ class DinoApp {
       this.guestReadyBtn.classList.remove('hidden');
       const rivalName = this.remoteProfile?.name || 'Host';
       const rivalColor = this.remoteProfile?.color || '#fff';
-      this.guestStatusBox.innerHTML = `En sala con <strong style="color: ${rivalColor}">${rivalName}</strong>. Cambia tu skin o color. Pulsa LISTO PARA JUGAR cuando termines.`;
+      this.guestStatusBox.innerHTML = `En sala con <strong style="color: ${rivalColor}">${rivalName}</strong>. Cambia tu skin o color y pulsa VOLVER AL JUEGO cuando termines.`;
     }
 
     this.updateLobbyCards();
@@ -885,7 +958,14 @@ class DinoApp {
     this.hostScoreBadge.classList.add('hidden');
     this.guestScoreBadge.classList.add('hidden');
     this.hostStartBtn.classList.add('hidden');
+    if (this.hostReturnGameBtn) this.hostReturnGameBtn.classList.add('hidden');
+    if (this.botReturnGameBtn) this.botReturnGameBtn.classList.add('hidden');
     this.guestReadyBtn.classList.add('hidden');
+    const toLobbyBtn = this.modalToLobbyBtn as HTMLButtonElement;
+    if (toLobbyBtn) {
+      toLobbyBtn.disabled = false;
+      toLobbyBtn.classList.remove('btn-disabled');
+    }
     this.hostStatusBox.innerHTML = '<span class="pulsing-dot"></span> Esperando a que el rival entre con el enlace...';
 
     this.resultModal.classList.add('hidden');

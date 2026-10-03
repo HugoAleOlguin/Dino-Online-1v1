@@ -863,6 +863,15 @@ kbd {
   background: #383e4a;
 }
 
+button:disabled,
+.classic-btn:disabled,
+.btn-disabled {
+  opacity: 0.45 !important;
+  cursor: not-allowed !important;
+  pointer-events: none !important;
+  filter: grayscale(80%);
+}
+
 .btn-exit {
   border-color: rgba(234, 67, 53, 0.4);
   color: #f28b82;

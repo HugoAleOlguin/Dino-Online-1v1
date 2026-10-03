@@ -36,27 +36,36 @@ describe('SessionScoreTracker (TDD)', () => {
     expect(s0.buttonText).toBe('REVANCHA');
     expect(s0.isAllReady).toBe(false);
 
-    // Local confirmed, waiting for remote
+    // Local confirmed, waiting for remote -> allows cancel and blocks lobby
     const s1 = tracker.formatRematchState(true, false, false);
-    expect(s1.buttonText).toBe('ESPERANDO RIVAL (1/2)');
+    expect(s1.buttonText).toBe('CANCELAR REVANCHA');
     expect(s1.statusText).toContain('Esperando');
     expect(s1.isAllReady).toBe(false);
+    expect(s1.canGoToLobby).toBe(false);
 
     // Local confirmed, but remote is in lobby
     const s1Lobby = tracker.formatRematchState(true, false, true);
-    expect(s1Lobby.buttonText).toBe('ESPERANDO RIVAL (1/2)');
+    expect(s1Lobby.buttonText).toBe('CANCELAR REVANCHA');
     expect(s1Lobby.statusText).toContain('lobby');
     expect(s1Lobby.isAllReady).toBe(false);
+    expect(s1Lobby.canGoToLobby).toBe(false);
 
-    // Remote confirmed first
+    // Remote confirmed first -> local can still go to lobby or accept
     const s2 = tracker.formatRematchState(false, true, false);
     expect(s2.buttonText).toBe('ACEPTAR REVANCHA (1/2)');
     expect(s2.statusText).toContain('rival');
     expect(s2.isAllReady).toBe(false);
+    expect(s2.canGoToLobby).toBe(true);
 
     // Both confirmed
     const s3 = tracker.formatRematchState(true, true, false);
     expect(s3.buttonText).toBe('¡LISTOS! (2/2)');
     expect(s3.isAllReady).toBe(true);
+    expect(s3.canGoToLobby).toBe(false);
+
+    // Cancelled back to initial
+    const s4 = tracker.formatRematchState(false, false, false);
+    expect(s4.buttonText).toBe('REVANCHA');
+    expect(s4.canGoToLobby).toBe(true);
   });
 });

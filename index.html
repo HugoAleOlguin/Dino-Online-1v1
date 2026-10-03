@@ -68,6 +68,11 @@
 
               <div class="separator-line"><span>O EN SOLITARIO</span></div>
 
+              <button id="bot-return-game-btn" class="classic-btn classic-btn-primary hidden" style="margin-bottom: 8px;">
+                <img src="/icons/reload.svg" width="16" height="16" alt="" class="btn-icon">
+                <span>VOLVER AL JUEGO</span>
+              </button>
+
               <button id="play-bot-btn" class="classic-btn classic-btn-bot">
                 <img src="/icons/android.svg" width="16" height="16" alt="" class="btn-icon">
                 <span>JUGAR CONTRA BOT</span>
@@ -149,6 +154,9 @@
               <!-- Hidden status box to preserve JS references -->
               <div id="host-status-box" class="hidden"></div>
 
+              <button id="host-return-game-btn" class="classic-btn btn-secondary hidden" style="margin-top: 10px; width: 100%;">
+                VOLVER AL JUEGO
+              </button>
               <button id="host-start-btn" class="classic-btn classic-btn-primary hidden" style="margin-top: 10px; width: 100%;">
                 INICIAR PARTIDA (5s)
               </button>
@@ -214,7 +222,7 @@
               <div id="guest-status-box" class="hidden"></div>
 
               <button id="guest-ready-btn" class="classic-btn classic-btn-primary hidden" style="margin-top: 10px; width: 100%;">
-                LISTO PARA JUGAR
+                VOLVER AL JUEGO
               </button>
               <button id="cancel-guest-btn" class="classic-btn btn-back">SALIR DE LA SALA</button>
             </div>
@@ -269,7 +277,7 @@
                 <span id="modal-rematch-text">REVANCHA</span>
               </button>
               <button id="modal-to-lobby-btn" class="classic-btn btn-secondary">
-                CAMBIAR SKIN (IR AL LOBBY)
+                IR AL LOBBY
               </button>
               <button id="modal-exit-btn" class="classic-btn btn-back">
                 SALIR DE LA SALA

@@ -43,4 +43,25 @@ describe('Lobby QoL Helpers', () => {
     (p2p as any).handleMessage({ type: 'KICKED', reason: 'Saliste de la sala' });
     expect(onKicked).toHaveBeenCalledWith('Saliste de la sala');
   });
+
+  it('triggers onCancelRematch callback when CANCEL_REMATCH message is received', () => {
+    const onCancelRematch = vi.fn();
+    const p2p = new P2PManager(
+      { name: 'Player', color: '#fff', skinId: 'classic' },
+      {
+        onConnected: vi.fn(),
+        onDisconnected: vi.fn(),
+        onStartGame: vi.fn(),
+        onRemoteState: vi.fn(),
+        onRemoteDied: vi.fn(),
+        onRematchRequested: vi.fn(),
+        onPingUpdated: vi.fn(),
+        onError: vi.fn(),
+        onCancelRematch,
+      }
+    );
+
+    (p2p as any).handleMessage({ type: 'CANCEL_REMATCH' });
+    expect(onCancelRematch).toHaveBeenCalled();
+  });
 });
