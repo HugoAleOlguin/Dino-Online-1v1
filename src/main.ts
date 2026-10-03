@@ -4,7 +4,12 @@ import { DinoAction } from './core/physics';
 import { DinoBot } from './core/bot';
 import { DoubleTrackRenderer, PlayerVisualState, MatchOverlayState } from './render/renderer';
 import { P2PManager, PlayerProfile } from './net/p2p';
-import { formatMatchComparison, sanitizeTextNoEmojis } from './render/ui-helpers';
+import {
+  formatMatchComparison,
+  sanitizeTextNoEmojis,
+  getLobbyPreviewSprite,
+  calculateLobbyPreviewLayout,
+} from './render/ui-helpers';
 import { SessionScoreTracker } from './core/session-score';
 import {
   canJoinRoom,
@@ -166,6 +171,7 @@ class DinoApp {
   private touchDuckBtn = document.getElementById('touch-duck-btn')!;
 
   private previewAnimTimer = 0;
+  private isLobbyDucking = false;
   private lastNetworkSendTime = 0;
 
   // Fixed timestep physics accumulator for screen parity (144Hz/120Hz/60Hz)
@@ -1261,15 +1267,14 @@ class DinoApp {
     // Calm preview animation cadence: 2.5 steps per second
     const frame = Math.floor(this.previewAnimTimer * 2.5) % 2;
     const skin = SKINS[this.profile.skinId] || SKINS.classic || Object.values(SKINS)[0];
-    if (!skin || !skin.run || !skin.run[frame]) return;
-    const spriteRect = skin.run[frame];
+    if (!skin) return;
+
+    // If holding down arrow in lobby, display the ducking preview in real time!
+    const spriteRect = getLobbyPreviewSprite(skin, this.isLobbyDucking, frame);
     if (!spriteRect) return;
 
-    // Draw at 2x scale crisp pixel art in the center
-    const targetW = 44 * 1.5;
-    const targetH = 47 * 1.5;
-    const x = Math.round((88 - targetW) / 2);
-    const y = Math.round((94 - targetH) / 2);
+    // Calculate layout with feet grounded on fixed baseline
+    const layout = calculateLobbyPreviewLayout(spriteRect, 88, 94, 1.4, 78);
 
     ctx.drawImage(
       img,
@@ -1277,14 +1282,33 @@ class DinoApp {
       spriteRect.y,
       spriteRect.w,
       spriteRect.h,
-      x,
-      y,
-      targetW,
-      targetH
+      layout.x,
+      layout.y,
+      layout.width,
+      layout.height
     );
   }
 
   private setupInputListeners(): void {
+    // Interactive mouse and touch duck preview on canvas
+    this.skinPreviewCanvas.addEventListener('mousedown', () => {
+      this.isLobbyDucking = true;
+    });
+    this.skinPreviewCanvas.addEventListener('mouseup', () => {
+      this.isLobbyDucking = false;
+    });
+    this.skinPreviewCanvas.addEventListener('mouseleave', () => {
+      this.isLobbyDucking = false;
+    });
+    this.skinPreviewCanvas.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      this.isLobbyDucking = true;
+    }, { passive: false });
+    this.skinPreviewCanvas.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      this.isLobbyDucking = false;
+    }, { passive: false });
+
     window.addEventListener('keydown', (e) => {
       // If end-game modal is open, Enter/Space triggers rematch, Escape exits
       if (!this.resultModal.classList.contains('hidden')) {
@@ -1299,26 +1323,42 @@ class DinoApp {
         }
       }
 
+      const isTyping = document.activeElement && ['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName);
+
       if (['Space', 'ArrowUp', 'KeyW'].includes(e.code)) {
-        e.preventDefault();
-        this.localEngine.handleInput(DinoAction.JUMP);
-        this.sendStateNow();
+        if (this.gameScreen.classList.contains('active')) {
+          e.preventDefault();
+          this.localEngine.handleInput(DinoAction.JUMP);
+          this.sendStateNow();
+        }
       } else if (['ArrowDown', 'KeyS'].includes(e.code)) {
-        e.preventDefault();
-        this.localEngine.handleInput(DinoAction.DUCK_START);
-        this.sendStateNow();
+        if (!isTyping) {
+          e.preventDefault();
+          if (this.lobbyScreen.classList.contains('active')) {
+            this.isLobbyDucking = true;
+          }
+          if (this.gameScreen.classList.contains('active')) {
+            this.localEngine.handleInput(DinoAction.DUCK_START);
+            this.sendStateNow();
+          }
+        }
       }
     });
 
     window.addEventListener('keyup', (e) => {
       if (['Space', 'ArrowUp', 'KeyW'].includes(e.code)) {
-        e.preventDefault();
-        this.localEngine.handleInput(DinoAction.JUMP_END);
-        this.sendStateNow();
+        if (this.gameScreen.classList.contains('active')) {
+          e.preventDefault();
+          this.localEngine.handleInput(DinoAction.JUMP_END);
+          this.sendStateNow();
+        }
       } else if (['ArrowDown', 'KeyS'].includes(e.code)) {
-        e.preventDefault();
-        this.localEngine.handleInput(DinoAction.DUCK_END);
-        this.sendStateNow();
+        this.isLobbyDucking = false;
+        if (this.gameScreen.classList.contains('active')) {
+          e.preventDefault();
+          this.localEngine.handleInput(DinoAction.DUCK_END);
+          this.sendStateNow();
+        }
       }
     });
 

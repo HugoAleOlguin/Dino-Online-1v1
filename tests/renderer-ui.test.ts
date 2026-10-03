@@ -5,6 +5,8 @@ import {
   sanitizeTextNoEmojis,
   resolveDinoRenderFrame,
   getPterodactylWingFrame,
+  getLobbyPreviewSprite,
+  calculateLobbyPreviewLayout,
 } from '../src/render/ui-helpers';
 import { SKINS } from '../src/render/sprites';
 
@@ -134,6 +136,32 @@ describe('In-game UI Helpers & Nick Badge', () => {
 
     // Continuous 2-frame flapping
     expect(getPterodactylWingFrame(540)).toBe(1);
+  });
+
+  it('selects correct sprite and maintains baseline alignment when ducking in lobby preview', () => {
+    const classicSkin = SKINS.classic;
+
+    // 1. When not ducking: returns running frames
+    const runFrame0 = getLobbyPreviewSprite(classicSkin, false, 0);
+    expect(runFrame0).toEqual(classicSkin.run[0]);
+    const runFrame1 = getLobbyPreviewSprite(classicSkin, false, 1);
+    expect(runFrame1).toEqual(classicSkin.run[1]);
+
+    // 2. When ducking in lobby (holding down arrow): returns ducking frames!
+    const duckFrame0 = getLobbyPreviewSprite(classicSkin, true, 0);
+    expect(duckFrame0).toEqual(classicSkin.duck[0]);
+    const duckFrame1 = getLobbyPreviewSprite(classicSkin, true, 1);
+    expect(duckFrame1).toEqual(classicSkin.duck[1]);
+
+    // 3. Layout: Feet grounded on baseline (Y=78) for both running and ducking
+    const runningLayout = calculateLobbyPreviewLayout(runFrame0, 88, 94, 1.4, 78);
+    expect(runningLayout.y + runningLayout.height).toBe(78); // Feet at baseline
+
+    const duckingLayout = calculateLobbyPreviewLayout(duckFrame0, 88, 94, 1.4, 78);
+    expect(duckingLayout.y + duckingLayout.height).toBe(78); // Feet stay at baseline!
+
+    // Ducking lowers the top head position (larger Y)
+    expect(duckingLayout.y).toBeGreaterThan(runningLayout.y);
   });
 });
 

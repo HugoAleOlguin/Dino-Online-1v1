@@ -111,3 +111,47 @@ export function resolveDinoRenderFrame(
 export function getPterodactylWingFrame(timeMs: number): number {
   return Math.floor(timeMs / 180) % 2;
 }
+
+/**
+ * Selects the preview sprite for the lobby avatar/stage.
+ * If user holds down arrow, previews the ducking animation in real-time.
+ */
+export function getLobbyPreviewSprite(
+  skin: SkinAnimationSet,
+  isDucking: boolean,
+  frame: number
+): SpriteRect {
+  if (isDucking && skin.duck && skin.duck.length > 0) {
+    return skin.duck[frame % skin.duck.length] || skin.duck[0];
+  }
+  if (skin.run && skin.run.length > 0) {
+    return skin.run[frame % skin.run.length] || skin.run[0];
+  }
+  return skin.idle;
+}
+
+export interface LobbyPreviewLayout {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Calculates pixel dimensions and coordinates for the lobby preview canvas (88x94)
+ * with feet grounded on a fixed baseline so ducking animates naturally downwards.
+ */
+export function calculateLobbyPreviewLayout(
+  spriteRect: SpriteRect,
+  canvasWidth: number = 88,
+  canvasHeight: number = 94,
+  scale: number = 1.4,
+  baselineY: number = 78
+): LobbyPreviewLayout {
+  const width = Math.round(spriteRect.w * scale);
+  const height = Math.round(spriteRect.h * scale);
+  const x = Math.round((canvasWidth - width) / 2);
+  const y = baselineY - height;
+  return { x, y, width, height };
+}
+
