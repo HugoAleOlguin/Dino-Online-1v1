@@ -22,3 +22,64 @@ export function formatCleanRoomUrl(origin: string, pathname: string, roomCode: s
   const base = `${origin}${cleanPath}`.replace(/\/+$/, '');
   return `${base}/?room=${cleanCode}`;
 }
+
+export interface HostLobbyButtonsState {
+  showStartBtn: boolean;
+  showReturnGameBtn: boolean;
+}
+
+/**
+ * Determines which buttons the host should see in the lobby:
+ * - If no match has been played yet with this rival: show Start button (if rival connected).
+ * - If an active match has already occurred: hide Start button, only show Return to Game button.
+ */
+export function getHostLobbyButtonsState(
+  isRivalConnected: boolean,
+  hasPlayedMatchWithCurrentRival: boolean
+): HostLobbyButtonsState {
+  if (!isRivalConnected) {
+    return { showStartBtn: false, showReturnGameBtn: false };
+  }
+  if (hasPlayedMatchWithCurrentRival) {
+    return { showStartBtn: false, showReturnGameBtn: true };
+  }
+  return { showStartBtn: true, showReturnGameBtn: false };
+}
+
+export interface DisconnectHandlingPlan {
+  shouldContinueRunning: boolean;
+  noticeTitle: string;
+  noticeSubtitle: string;
+  noticeStatus: string;
+  showReturnToLobbyBtn: boolean;
+  canRematch: boolean;
+}
+
+/**
+ * Determines how a peer disconnection should be handled:
+ * - If match is currently running and local is not dead: let local continue running!
+ * - Once match finishes (or if already finished): show abandonment notice and return to lobby button.
+ */
+export function planDisconnectHandling(
+  isMatchRunning: boolean,
+  isLocalGameOver: boolean
+): DisconnectHandlingPlan {
+  if (isMatchRunning && !isLocalGameOver) {
+    return {
+      shouldContinueRunning: true,
+      noticeTitle: 'PARTIDA FINALIZADA',
+      noticeSubtitle: 'EL RIVAL ABANDONÓ LA PARTIDA',
+      noticeStatus: 'El rival abandonó la partida.',
+      showReturnToLobbyBtn: true,
+      canRematch: false,
+    };
+  }
+  return {
+    shouldContinueRunning: false,
+    noticeTitle: 'PARTIDA FINALIZADA',
+    noticeSubtitle: 'EL RIVAL ABANDONÓ LA PARTIDA',
+    noticeStatus: 'El rival abandonó la partida.',
+    showReturnToLobbyBtn: true,
+    canRematch: false,
+  };
+}

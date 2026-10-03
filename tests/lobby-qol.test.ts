@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { canJoinRoom, formatCleanRoomUrl } from '../src/core/lobby-helpers';
+import {
+  canJoinRoom,
+  formatCleanRoomUrl,
+  getHostLobbyButtonsState,
+  planDisconnectHandling,
+} from '../src/core/lobby-helpers';
 import { P2PManager } from '../src/net/p2p';
 
 describe('Lobby QoL Helpers', () => {
@@ -63,5 +68,40 @@ describe('Lobby QoL Helpers', () => {
 
     (p2p as any).handleMessage({ type: 'CANCEL_REMATCH' });
     expect(onCancelRematch).toHaveBeenCalled();
+  });
+
+  it('hides host start button in lobby when returning from an active game, only showing return to game', () => {
+    // 1. Initial room creation, no rival yet
+    expect(getHostLobbyButtonsState(false, false)).toEqual({
+      showStartBtn: false,
+      showReturnGameBtn: false,
+    });
+
+    // 2. Rival connects for the first time -> host can start game
+    expect(getHostLobbyButtonsState(true, false)).toEqual({
+      showStartBtn: true,
+      showReturnGameBtn: false,
+    });
+
+    // 3. Returning to lobby from an active/played match -> start button hidden, only return to game
+    expect(getHostLobbyButtonsState(true, true)).toEqual({
+      showStartBtn: false,
+      showReturnGameBtn: true,
+    });
+  });
+
+  it('allows local player to continue running when peer disconnects mid-match, then prompts return to lobby', () => {
+    // 1. Mid-match while local is still alive
+    const midMatch = planDisconnectHandling(true, false);
+    expect(midMatch.shouldContinueRunning).toBe(true);
+    expect(midMatch.showReturnToLobbyBtn).toBe(true);
+    expect(midMatch.canRematch).toBe(false);
+    expect(midMatch.noticeStatus).toContain('abandonó');
+
+    // 2. Game already finished when disconnect happens
+    const afterMatch = planDisconnectHandling(false, true);
+    expect(afterMatch.shouldContinueRunning).toBe(false);
+    expect(afterMatch.showReturnToLobbyBtn).toBe(true);
+    expect(afterMatch.canRematch).toBe(false);
   });
 });

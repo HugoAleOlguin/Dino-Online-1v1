@@ -6,7 +6,12 @@ import { DoubleTrackRenderer, PlayerVisualState, MatchOverlayState } from './ren
 import { P2PManager, PlayerProfile } from './net/p2p';
 import { formatMatchComparison, sanitizeTextNoEmojis } from './render/ui-helpers';
 import { SessionScoreTracker } from './core/session-score';
-import { canJoinRoom, formatCleanRoomUrl } from './core/lobby-helpers';
+import {
+  canJoinRoom,
+  formatCleanRoomUrl,
+  getHostLobbyButtonsState,
+  planDisconnectHandling,
+} from './core/lobby-helpers';
 
 // Authentic Chrome Dino Palette
 const COLORS = [
@@ -132,6 +137,8 @@ class DinoApp {
   private remoteWantsRematch = false;
   private remoteInLobby = false;
   private botRematchTimer: number | null = null;
+  private hasPlayedMatchWithCurrentRival = false;
+  private remoteDisconnectedDuringMatch = false;
 
   private exitGameBtn = document.getElementById('exit-game-btn')!;
   private lobbyGameBtn = document.getElementById('lobby-game-btn')!;
@@ -318,7 +325,7 @@ class DinoApp {
       // Multiplayer mode: notify peer that we died at this distance
       this.p2p.send({ type: 'DIED', score, distance: this.localDeathDistance });
 
-      if (this.remoteState.isDead && this.remoteDeathDistance !== null) {
+      if (this.remoteDisconnectedDuringMatch || (this.remoteState.isDead && this.remoteDeathDistance !== null)) {
         this.evaluateMatchWinner();
       } else {
         // Local crashed first! Remote is still running!
@@ -332,6 +339,12 @@ class DinoApp {
   }
 
   private evaluateMatchWinner(): void {
+    if (this.remoteDisconnectedDuringMatch) {
+      this.remoteDisconnectedDuringMatch = false;
+      this.handleRivalAbandonment();
+      return;
+    }
+
     const isBot = this.isBotMode;
     const rawRivalName = isBot ? 'BOT' : this.remoteProfile?.name || 'Rival';
     const rivalName = sanitizeTextNoEmojis(rawRivalName) || 'Rival';
@@ -382,15 +395,68 @@ class DinoApp {
     // Reset rematch readiness for next match
     this.localWantsRematch = false;
     this.remoteWantsRematch = false;
+    this.modalRematchBtn.classList.remove('hidden');
+    this.modalToLobbyBtn.textContent = 'IR AL LOBBY';
     this.updateRematchModalView();
 
     this.resultModal.classList.remove('hidden');
+  }
+
+  private handleRivalAbandonment(): void {
+    this.remoteProfile = null;
+    this.remoteWantsRematch = false;
+    this.remoteInLobby = false;
+    this.hasPlayedMatchWithCurrentRival = false;
+
+    if (this.gameScreen.classList.contains('active')) {
+      // Local is in game screen / modal / spectator
+      this.modalResultTitle.textContent = 'PARTIDA FINALIZADA';
+      this.modalResultTitle.style.color = '#f1c40f';
+      this.modalResultSub.textContent = 'EL RIVAL ABANDONÓ LA PARTIDA';
+      this.modalResultIcon.src = '/icons/flag.svg';
+
+      const myDist = this.localDeathDistance !== null ? this.localDeathDistance : Math.floor(this.localEngine.distance);
+      this.modalScoresLine.textContent = `CORRISTE ${myDist} METROS`;
+      this.modalDiffBadge.textContent = 'RIVAL DESCONECTADO';
+      this.modalDiffBadge.style.color = '#e74c3c';
+
+      this.modalRematchBtn.classList.add('hidden');
+      this.modalRematchStatus.textContent = 'El rival abandonó la partida.';
+      this.modalRematchStatus.classList.remove('hidden');
+
+      const toLobbyBtn = this.modalToLobbyBtn as HTMLButtonElement;
+      if (toLobbyBtn) {
+        toLobbyBtn.disabled = false;
+        toLobbyBtn.classList.remove('btn-disabled');
+        toLobbyBtn.textContent = 'VOLVER AL LOBBY';
+        toLobbyBtn.classList.remove('hidden');
+      }
+
+      this.resultModal.classList.remove('hidden');
+      this.isMatchRunning = false;
+      this.countdownEndTime = null;
+      this.matchOverlay = null;
+      return;
+    }
+
+    if (this.p2p.isHost) {
+      this.hostStartBtn.classList.add('hidden');
+      if (this.hostReturnGameBtn) this.hostReturnGameBtn.classList.add('hidden');
+      this.hostStatusBox.innerHTML = '<span class="pulsing-dot"></span> Rival desconectado. Esperando a un nuevo rival...';
+      this.updateLobbyCards();
+      this.updateScoreboardDisplays();
+    } else {
+      this.showError('El anfitrión ha cerrado o abandonado la sala.');
+      this.fullExitToMainMenu();
+    }
   }
 
   private setupP2P(): void {
     this.p2p = new P2PManager(this.profile, {
       onConnected: (remoteProfile) => {
         this.remoteProfile = remoteProfile;
+        this.hasPlayedMatchWithCurrentRival = false;
+        this.remoteDisconnectedDuringMatch = false;
         this.updateScoreboardDisplays();
         this.updateLobbyCards();
 
@@ -398,6 +464,7 @@ class DinoApp {
           // Host remains in lobby waiting room and can start when ready!
           this.hostStatusBox.innerHTML = `¡Rival conectado: <strong style="color: ${remoteProfile.color || '#fff'}">${remoteProfile.name}</strong>!`;
           this.hostStartBtn.classList.remove('hidden');
+          if (this.hostReturnGameBtn) this.hostReturnGameBtn.classList.add('hidden');
         } else {
           // Guest is in waiting room panel customizing profile
           this.roomMenuView.classList.add('hidden');
@@ -420,18 +487,17 @@ class DinoApp {
       },
 
       onDisconnected: () => {
-        if (this.p2p.isHost && this.lobbyScreen.classList.contains('active')) {
-          this.remoteProfile = null;
-          this.remoteWantsRematch = false;
-          this.remoteInLobby = false;
-          this.hostStartBtn.classList.add('hidden');
-          this.hostStatusBox.innerHTML = '<span class="pulsing-dot"></span> Esperando a que el rival entre con el enlace...';
-          this.updateLobbyCards();
-          this.updateScoreboardDisplays();
-        } else {
-          this.showError('El rival se ha desconectado de la sala.');
-          this.fullExitToMainMenu();
+        // If local player is actively running mid-match:
+        if (this.isMatchRunning && !this.localEngine.isGameOver) {
+          // Let local player continue running until they crash!
+          this.remoteDisconnectedDuringMatch = true;
+          this.remoteState.isDead = true;
+          this.remoteDeathDistance = Math.floor(this.remoteState.distance);
+          return;
         }
+
+        // If local is not currently running or already crashed/in modal:
+        this.handleRivalAbandonment();
       },
 
       onKicked: (reason) => {
@@ -440,6 +506,8 @@ class DinoApp {
       },
 
       onStartGame: (seed, startTimestamp) => {
+        this.hasPlayedMatchWithCurrentRival = true;
+        this.remoteDisconnectedDuringMatch = false;
         this.showGameScreen();
         this.startCountdown(seed, startTimestamp);
       },
@@ -530,6 +598,8 @@ class DinoApp {
       };
     }
 
+    this.hasPlayedMatchWithCurrentRival = true;
+    this.remoteDisconnectedDuringMatch = false;
     this.matchOverlay = null;
     this.localDeathDistance = null;
     this.remoteDeathDistance = null;
@@ -610,6 +680,8 @@ class DinoApp {
     this.createRoomBtn.addEventListener('click', async () => {
       this.hideError();
       this.isBotMode = false;
+      this.hasPlayedMatchWithCurrentRival = false;
+      this.remoteDisconnectedDuringMatch = false;
       this.sessionScore.reset();
       this.updateScoreboardDisplays();
       try {
@@ -630,6 +702,7 @@ class DinoApp {
         this.roomMenuView.classList.add('hidden');
         this.hostRoomView.classList.remove('hidden');
         this.hostStartBtn.classList.add('hidden');
+        if (this.hostReturnGameBtn) this.hostReturnGameBtn.classList.add('hidden');
         this.hostStatusBox.innerHTML = '<span class="pulsing-dot"></span> Esperando a que el rival entre con el enlace...';
         this.updateLobbyCards();
       } catch {
@@ -640,6 +713,8 @@ class DinoApp {
     // 5. Host clicks Start Game button
     this.hostStartBtn.addEventListener('click', () => {
       if (!this.p2p.isHost) return;
+      this.hasPlayedMatchWithCurrentRival = true;
+      this.remoteDisconnectedDuringMatch = false;
       this.remoteInLobby = false;
       const seed = Math.floor(Math.random() * 1000000);
       const startTimestamp = Date.now() + 5200; // 5-second countdown!
@@ -910,12 +985,25 @@ class DinoApp {
       this.joinRoomView.classList.add('hidden');
       this.guestRoomView.classList.add('hidden');
       this.hostRoomView.classList.remove('hidden');
-      this.hostStartBtn.classList.remove('hidden');
-      if (this.hostReturnGameBtn) this.hostReturnGameBtn.classList.remove('hidden');
-      const rivalName = this.remoteProfile?.name || 'Rival';
-      const rivalColor = this.remoteProfile?.color || '#fff';
-      this.hostStatusBox.innerHTML = `En sala con <strong style="color: ${rivalColor}">${rivalName}</strong>. Cambia tu skin o color y pulsa VOLVER AL JUEGO cuando estés listo.`;
+
+      if (!this.remoteProfile) {
+        // Rival had abandoned
+        this.hostStartBtn.classList.add('hidden');
+        if (this.hostReturnGameBtn) this.hostReturnGameBtn.classList.add('hidden');
+        this.hostStatusBox.innerHTML = '<span class="pulsing-dot"></span> Esperando a que el rival entre con el enlace...';
+      } else {
+        // Active match: Host CANNOT start a new game from lobby. Must return to game and rematch!
+        this.hostStartBtn.classList.add('hidden');
+        if (this.hostReturnGameBtn) this.hostReturnGameBtn.classList.remove('hidden');
+        const rivalName = this.remoteProfile?.name || 'Rival';
+        const rivalColor = this.remoteProfile?.color || '#fff';
+        this.hostStatusBox.innerHTML = `En sala con <strong style="color: ${rivalColor}">${rivalName}</strong>. Cambia tu skin o color y pulsa VOLVER AL JUEGO para dar revancha.`;
+      }
     } else {
+      if (!this.remoteProfile) {
+        this.fullExitToMainMenu();
+        return;
+      }
       this.roomMenuView.classList.add('hidden');
       this.joinRoomView.classList.add('hidden');
       this.hostRoomView.classList.add('hidden');
@@ -938,6 +1026,8 @@ class DinoApp {
     this.localWantsRematch = false;
     this.remoteWantsRematch = false;
     this.remoteInLobby = false;
+    this.hasPlayedMatchWithCurrentRival = false;
+    this.remoteDisconnectedDuringMatch = false;
 
     sessionStorage.removeItem('active_host_room');
     sessionStorage.removeItem('dino_host_tab');
