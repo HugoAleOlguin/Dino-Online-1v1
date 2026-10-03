@@ -47,7 +47,7 @@
   },
   "party": {
     "id": "party",
-    "name": "T-Rex Cumpleaños 🥳",
+    "name": "T-Rex Cumpleaños",
     "targetHeight": 63,
     "duckHeight": 43,
     "idle": {
@@ -93,7 +93,7 @@
   },
   "hurdles": {
     "id": "hurdles",
-    "name": "T-Rex Atleta 🏃",
+    "name": "T-Rex Atleta",
     "targetHeight": 47,
     "duckHeight": 38,
     "idle": {
@@ -139,7 +139,7 @@
   },
   "gymnastics": {
     "id": "gymnastics",
-    "name": "T-Rex Gimnasta 🤸",
+    "name": "T-Rex Gimnasta",
     "targetHeight": 47,
     "duckHeight": 35,
     "idle": {
@@ -185,7 +185,7 @@
   },
   "surfing": {
     "id": "surfing",
-    "name": "T-Rex Surfista 🏄",
+    "name": "T-Rex Surfista",
     "targetHeight": 55,
     "duckHeight": 45,
     "idle": {
@@ -231,7 +231,7 @@
   },
   "equestrian": {
     "id": "equestrian",
-    "name": "T-Rex Ecuestre 🐎",
+    "name": "T-Rex Ecuestre",
     "targetHeight": 67,
     "duckHeight": 55,
     "idle": {
@@ -277,7 +277,7 @@
   },
   "swimming": {
     "id": "swimming",
-    "name": "T-Rex Natación 🏊",
+    "name": "T-Rex Natación",
     "targetHeight": 35,
     "duckHeight": 26,
     "idle": {

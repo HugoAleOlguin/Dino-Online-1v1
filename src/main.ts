@@ -4,6 +4,9 @@ import { DinoAction } from './core/physics';
 import { DinoBot } from './core/bot';
 import { DoubleTrackRenderer, PlayerVisualState, MatchOverlayState } from './render/renderer';
 import { P2PManager, PlayerProfile } from './net/p2p';
+import { formatMatchComparison, sanitizeTextNoEmojis } from './render/ui-helpers';
+import { SessionScoreTracker } from './core/session-score';
+import { canJoinRoom, formatCleanRoomUrl } from './core/lobby-helpers';
 
 // Authentic Chrome Dino Palette
 const COLORS = [
@@ -77,12 +80,38 @@ class DinoApp {
   private playBotBtn = document.getElementById('play-bot-btn')!;
 
   private displayRoomCode = document.getElementById('display-room-code')!;
+  private displayRoomChip = document.getElementById('display-room-chip');
   private roomLinkInput = document.getElementById('room-link-input') as HTMLInputElement;
+  private copyCodeBtn = document.getElementById('copy-code-btn');
   private copyLinkBtn = document.getElementById('copy-link-btn')!;
   private copyFeedback = document.getElementById('copy-feedback')!;
+  private copyFeedbackText = document.getElementById('copy-feedback-text');
   private hostStatusBox = document.getElementById('host-status-box')!;
   private hostStartBtn = document.getElementById('host-start-btn') as HTMLButtonElement;
   private cancelRoomBtn = document.getElementById('cancel-room-btn')!;
+
+  // Player cards in host room view
+  private hostCardName = document.getElementById('host-card-name');
+  private hostCardSkin = document.getElementById('host-card-skin');
+  private hostAvatarCanvas = document.getElementById('host-avatar-canvas') as HTMLCanvasElement | null;
+
+  private guestCard = document.getElementById('guest-card');
+  private guestCardEmpty = document.getElementById('guest-card-empty');
+  private guestCardContent = document.getElementById('guest-card-content');
+  private guestCardName = document.getElementById('guest-card-name');
+  private guestCardSkin = document.getElementById('guest-card-skin');
+  private guestCardStatus = document.getElementById('guest-card-status');
+  private guestAvatarCanvas = document.getElementById('guest-avatar-canvas') as HTMLCanvasElement | null;
+  private kickRivalBtn = document.getElementById('kick-rival-btn');
+
+  // Player cards in guest room view
+  private guestViewHostName = document.getElementById('guest-view-host-name');
+  private guestViewHostSkin = document.getElementById('guest-view-host-skin');
+  private guestViewHostAvatar = document.getElementById('guest-view-host-avatar') as HTMLCanvasElement | null;
+
+  private guestViewMyName = document.getElementById('guest-view-my-name');
+  private guestViewMySkin = document.getElementById('guest-view-my-skin');
+  private guestViewMyAvatar = document.getElementById('guest-view-my-avatar') as HTMLCanvasElement | null;
 
   private roomCodeInput = document.getElementById('room-code-input') as HTMLInputElement;
   private joinRoomConfirmBtn = document.getElementById('join-room-confirm-btn')!;
@@ -96,10 +125,31 @@ class DinoApp {
 
   private pingText = document.getElementById('ping-text')!;
   private gameModeTag = document.getElementById('game-mode-tag')!;
-  private gameRoomCode = document.getElementById('game-room-code')!;
+  private sessionScore = new SessionScoreTracker();
+  private localWantsRematch = false;
+  private remoteWantsRematch = false;
+  private remoteInLobby = false;
+
   private exitGameBtn = document.getElementById('exit-game-btn')!;
-  private rematchBar = document.getElementById('rematch-bar')!;
-  private rematchBtn = document.getElementById('rematch-btn')!;
+  private lobbyGameBtn = document.getElementById('lobby-game-btn')!;
+  private sessionScoreTag = document.getElementById('session-score-tag')!;
+
+  private resultModal = document.getElementById('game-result-modal')!;
+  private modalResultIcon = document.getElementById('modal-result-icon') as HTMLImageElement;
+  private modalResultTitle = document.getElementById('modal-result-title')!;
+  private modalResultSub = document.getElementById('modal-result-sub')!;
+  private modalScoresLine = document.getElementById('modal-scores-line')!;
+  private modalDiffBadge = document.getElementById('modal-diff-badge')!;
+  private modalSeriesBadge = document.getElementById('modal-series-badge')!;
+  private modalRematchStatus = document.getElementById('modal-rematch-status')!;
+  private modalRematchText = document.getElementById('modal-rematch-text')!;
+  private modalRematchBtn = document.getElementById('modal-rematch-btn')!;
+  private modalToLobbyBtn = document.getElementById('modal-to-lobby-btn')!;
+  private modalExitBtn = document.getElementById('modal-exit-btn')!;
+
+  private hostScoreBadge = document.getElementById('host-score-badge')!;
+  private guestScoreBadge = document.getElementById('guest-score-badge')!;
+  private guestReadyBtn = document.getElementById('guest-ready-btn')!;
 
   private touchJumpBtn = document.getElementById('touch-jump-btn')!;
   private touchDuckBtn = document.getElementById('touch-duck-btn')!;
@@ -153,8 +203,29 @@ class DinoApp {
     if (roomParam) {
       const code = roomParam.trim().toUpperCase();
       this.roomCodeInput.value = code;
-      this.joinRoom(code);
+      const hostRoom = localStorage.getItem('dino_active_host_room');
+      const isHostTab = sessionStorage.getItem('dino_host_tab') === code;
+
+      if (hostRoom && hostRoom === code && !isHostTab) {
+        this.showError('No puedes unirte a tu propia sala desde el mismo navegador.');
+        window.history.replaceState({}, '', window.location.pathname);
+      } else if (isHostTab) {
+        // Tab was refreshed by host: peer connection was dropped by reload
+        window.history.replaceState({}, '', window.location.pathname);
+        sessionStorage.removeItem('dino_host_tab');
+        localStorage.removeItem('dino_active_host_room');
+      } else {
+        this.joinRoom(code);
+      }
     }
+
+    // Clear host lock if host closes the window/tab
+    window.addEventListener('beforeunload', () => {
+      if (this.p2p && this.p2p.isHost) {
+        localStorage.removeItem('dino_active_host_room');
+        localStorage.removeItem('dino_host_timestamp');
+      }
+    });
 
     // 7. Start Main Loop
     requestAnimationFrame((t) => this.loop(t));
@@ -259,38 +330,70 @@ class DinoApp {
 
   private evaluateMatchWinner(): void {
     const isBot = this.isBotMode;
-    const rivalName = isBot ? 'BOT' : this.remoteProfile?.name || 'Rival';
+    const rawRivalName = isBot ? 'BOT' : this.remoteProfile?.name || 'Rival';
+    const rivalName = sanitizeTextNoEmojis(rawRivalName) || 'Rival';
     const rivalDist = isBot ? this.botDeathDistance || 0 : this.remoteDeathDistance || 0;
     const myDist = this.localDeathDistance || 0;
 
+    const comp = formatMatchComparison(myDist, rivalDist, rivalName);
+    this.modalScoresLine.textContent = comp.detailText;
+    this.modalDiffBadge.textContent = comp.diffText;
+
     if (myDist > rivalDist) {
+      this.sessionScore.recordWin('local');
       this.matchOverlay = {
         type: 'VICTORY',
         myDistance: myDist,
         rivalDistance: rivalDist,
         rivalName,
       };
+      this.modalResultTitle.textContent = 'VICTORIA';
+      this.modalResultTitle.style.color = '#f1c40f';
+      this.modalResultSub.textContent = '¡HAS GANADO EL DUELO!';
+      this.modalResultIcon.src = '/icons/trophy.svg';
+      this.modalDiffBadge.style.color = '#2ecc71';
     } else if (myDist < rivalDist) {
+      this.sessionScore.recordWin('remote');
       this.matchOverlay = {
         type: 'DEFEAT',
         myDistance: myDist,
         rivalDistance: rivalDist,
         rivalName,
       };
+      this.modalResultTitle.textContent = 'G A M E   O V E R';
+      this.modalResultTitle.style.color = '#e74c3c';
+      this.modalResultSub.textContent = `${rivalName.toUpperCase()} LLEGÓ MÁS LEJOS`;
+      this.modalResultIcon.src = '/icons/close.svg';
+      this.modalDiffBadge.style.color = '#e74c3c';
     } else {
       this.matchOverlay = { type: 'TIE', distance: myDist };
+      this.modalResultTitle.textContent = '¡ EMPATE !';
+      this.modalResultTitle.style.color = '#f1c40f';
+      this.modalResultSub.textContent = `AMBOS CHOCARON A LOS ${myDist} METROS`;
+      this.modalResultIcon.src = '/icons/flag.svg';
+      this.modalDiffBadge.style.color = '#acacac';
     }
-    this.rematchBar.classList.remove('hidden');
+
+    this.updateScoreboardDisplays();
+
+    // Reset rematch readiness for next match
+    this.localWantsRematch = false;
+    this.remoteWantsRematch = false;
+    this.updateRematchModalView();
+
+    this.resultModal.classList.remove('hidden');
   }
 
   private setupP2P(): void {
     this.p2p = new P2PManager(this.profile, {
       onConnected: (remoteProfile) => {
         this.remoteProfile = remoteProfile;
+        this.updateScoreboardDisplays();
+        this.updateLobbyCards();
 
         if (this.p2p.isHost) {
           // Host remains in lobby waiting room and can start when ready!
-          this.hostStatusBox.innerHTML = `✓ ¡Rival conectado: <strong style="color: ${remoteProfile.color || '#fff'}">${remoteProfile.name}</strong>!`;
+          this.hostStatusBox.innerHTML = `¡Rival conectado: <strong style="color: ${remoteProfile.color || '#fff'}">${remoteProfile.name}</strong>!`;
           this.hostStartBtn.classList.remove('hidden');
         } else {
           // Guest is in waiting room panel customizing profile
@@ -298,22 +401,39 @@ class DinoApp {
           this.joinRoomView.classList.add('hidden');
           this.guestRoomView.classList.remove('hidden');
           this.guestDisplayRoomCode.textContent = this.p2p.roomId || this.roomCodeInput.value || 'SALA';
-          this.guestStatusBox.innerHTML = `✓ ¡Conectado al Host: <strong style="color: ${remoteProfile.color || '#fff'}">${remoteProfile.name}</strong>!`;
+          this.guestStatusBox.innerHTML = `¡Conectado al Host: <strong style="color: ${remoteProfile.color || '#fff'}">${remoteProfile.name}</strong>!`;
         }
       },
 
       onProfileUpdated: (remoteProfile) => {
         this.remoteProfile = remoteProfile;
         if (this.p2p.isHost) {
-          this.hostStatusBox.innerHTML = `✓ ¡Rival conectado: <strong style="color: ${remoteProfile.color || '#fff'}">${remoteProfile.name}</strong>!`;
+          this.hostStatusBox.innerHTML = `¡Rival conectado: <strong style="color: ${remoteProfile.color || '#fff'}">${remoteProfile.name}</strong>!`;
         } else {
-          this.guestStatusBox.innerHTML = `✓ ¡Conectado al Host: <strong style="color: ${remoteProfile.color || '#fff'}">${remoteProfile.name}</strong>!`;
+          this.guestStatusBox.innerHTML = `¡Conectado al Host: <strong style="color: ${remoteProfile.color || '#fff'}">${remoteProfile.name}</strong>!`;
         }
+        this.updateScoreboardDisplays();
+        this.updateLobbyCards();
       },
 
       onDisconnected: () => {
-        this.showError('El rival se ha desconectado de la sala.');
-        this.exitToLobby();
+        if (this.p2p.isHost && this.lobbyScreen.classList.contains('active')) {
+          this.remoteProfile = null;
+          this.remoteWantsRematch = false;
+          this.remoteInLobby = false;
+          this.hostStartBtn.classList.add('hidden');
+          this.hostStatusBox.innerHTML = '<span class="pulsing-dot"></span> Esperando a que el rival entre con el enlace...';
+          this.updateLobbyCards();
+          this.updateScoreboardDisplays();
+        } else {
+          this.showError('El rival se ha desconectado de la sala.');
+          this.fullExitToMainMenu();
+        }
+      },
+
+      onKicked: (reason) => {
+        this.fullExitToMainMenu();
+        this.showError(reason || 'Has sido expulsado de la sala por el anfitrión.');
       },
 
       onStartGame: (seed, startTimestamp) => {
@@ -337,9 +457,6 @@ class DinoApp {
         if (this.localEngine.isGameOver && this.localDeathDistance !== null) {
           // Both are finished!
           this.evaluateMatchWinner();
-        } else {
-          // Local player is STILL ALIVE!
-          // Rival died, local continues playing without any interruption!
         }
       },
 
@@ -347,6 +464,33 @@ class DinoApp {
         const startTimestamp = Date.now() + 5200; // 5-second countdown!
         this.p2p.send({ type: 'START_GAME', seed, startTimestamp });
         this.startCountdown(seed, startTimestamp);
+      },
+
+      onRematchReady: () => {
+        this.remoteWantsRematch = true;
+        this.updateRematchModalView();
+        if (this.p2p.isHost && this.localWantsRematch) {
+          const newSeed = Math.floor(Math.random() * 1000000);
+          const startTimestamp = Date.now() + 5200; // 5-second countdown!
+          this.p2p.send({ type: 'START_GAME', seed: newSeed, startTimestamp });
+          this.startCountdown(newSeed, startTimestamp);
+        }
+      },
+
+      onRemoteInLobby: () => {
+        this.remoteInLobby = true;
+        this.remoteWantsRematch = false;
+        this.updateRematchModalView();
+        if (this.p2p.isHost) {
+          this.hostStatusBox.innerHTML = `<span class="pulsing-dot"></span> <strong style="color: ${this.remoteProfile?.color || '#fff'}">${this.remoteProfile?.name || 'Rival'}</strong> está en el lobby cambiando skin/color...`;
+        }
+      },
+
+      onRemoteReadyInLobby: () => {
+        this.remoteInLobby = false;
+        if (this.p2p.isHost) {
+          this.hostStatusBox.innerHTML = `¡<strong style="color: ${this.remoteProfile?.color || '#fff'}">${this.remoteProfile?.name || 'Rival'}</strong> está LISTO! Pulsa INICIAR PARTIDA.`;
+        }
       },
 
       onPingUpdated: (pingMs) => {
@@ -381,7 +525,10 @@ class DinoApp {
     this.localDeathDistance = null;
     this.remoteDeathDistance = null;
     this.botDeathDistance = null;
-    this.rematchBar.classList.add('hidden');
+    this.localWantsRematch = false;
+    this.remoteWantsRematch = false;
+    this.remoteInLobby = false;
+    this.resultModal.classList.add('hidden');
     this.countdownEndTime = startTimestamp;
     this.isMatchRunning = false;
     this.physicsAccumulator = 0;
@@ -395,6 +542,7 @@ class DinoApp {
       this.profile.name = this.nameInput.value.trim() || 'Dino';
       localStorage.setItem('dino_name', this.profile.name);
       this.p2p.setLocalProfile(this.profile);
+      this.updateLobbyCards();
     });
 
     // 2. Color Palette
@@ -409,6 +557,7 @@ class DinoApp {
         this.profile.color = hex;
         localStorage.setItem('dino_color', hex);
         this.p2p.setLocalProfile(this.profile);
+        this.updateLobbyCards();
       });
       this.colorPalette.appendChild(swatch);
     });
@@ -419,6 +568,7 @@ class DinoApp {
       localStorage.setItem('dino_skin', newSkinId);
       this.skinNameLabel.textContent = SKINS[newSkinId]?.name || newSkinId;
       this.p2p.setLocalProfile(this.profile);
+      this.updateLobbyCards();
     };
 
     if (!SKINS[this.profile.skinId]) {
@@ -441,11 +591,21 @@ class DinoApp {
     // 4. Panel Navigation: Show Create Room View
     this.createRoomBtn.addEventListener('click', async () => {
       this.hideError();
+      this.isBotMode = false;
+      this.sessionScore.reset();
+      this.updateScoreboardDisplays();
       try {
         const code = await this.p2p.createRoom();
+        sessionStorage.setItem('active_host_room', code);
+        sessionStorage.setItem('dino_host_tab', code);
+        localStorage.setItem('dino_active_host_room', code);
+        localStorage.setItem('dino_host_timestamp', Date.now().toString());
+        window.history.pushState({ room: code }, '', `?room=${code}`);
+
         this.displayRoomCode.textContent = code;
-        this.gameRoomCode.textContent = code;
-        const shareUrl = `${window.location.origin}${window.location.pathname}?room=${code}`;
+        if (this.displayRoomChip) this.displayRoomChip.textContent = code;
+        this.gameModeTag.textContent = `SALA: ${code}`;
+        const shareUrl = formatCleanRoomUrl(window.location.origin, window.location.pathname, code);
         this.roomLinkInput.value = shareUrl;
 
         // Switch panel cleanly
@@ -453,6 +613,7 @@ class DinoApp {
         this.hostRoomView.classList.remove('hidden');
         this.hostStartBtn.classList.add('hidden');
         this.hostStatusBox.innerHTML = '<span class="pulsing-dot"></span> Esperando a que el rival entre con el enlace...';
+        this.updateLobbyCards();
       } catch {
         this.showError('No se pudo crear la sala. Verifica la conexión.');
       }
@@ -461,6 +622,7 @@ class DinoApp {
     // 5. Host clicks Start Game button
     this.hostStartBtn.addEventListener('click', () => {
       if (!this.p2p.isHost) return;
+      this.remoteInLobby = false;
       const seed = Math.floor(Math.random() * 1000000);
       const startTimestamp = Date.now() + 5200; // 5-second countdown!
       this.p2p.send({ type: 'START_GAME', seed, startTimestamp });
@@ -478,7 +640,7 @@ class DinoApp {
 
     // 7. Back Button (from Host view)
     this.cancelRoomBtn.addEventListener('click', () => {
-      this.exitToLobby();
+      this.fullExitToMainMenu();
     });
 
     // 8. Back Button (from Join view)
@@ -490,7 +652,7 @@ class DinoApp {
 
     // 9. Cancel/Leave from Guest waiting view
     this.cancelGuestBtn.addEventListener('click', () => {
-      this.exitToLobby();
+      this.fullExitToMainMenu();
     });
 
     // 10. Confirm Join Button
@@ -500,12 +662,20 @@ class DinoApp {
         this.showError('Ingresa un código de 4 letras.');
         return;
       }
+      const hostRoom = localStorage.getItem('dino_active_host_room') || sessionStorage.getItem('active_host_room');
+      if (!canJoinRoom(code, hostRoom)) {
+        this.showError('No puedes unirte a tu propia sala desde el mismo navegador.');
+        return;
+      }
       this.joinRoom(code);
     });
 
     // 11. Bot Mode: Play Against Bot
     this.playBotBtn.addEventListener('click', () => {
       this.hideError();
+      if (!this.isBotMode) {
+        this.sessionScore.reset();
+      }
       this.isBotMode = true;
       const seed = Math.floor(Math.random() * 1000000);
       const botEngine = new GameEngine(seed);
@@ -513,55 +683,373 @@ class DinoApp {
 
       this.gameModeTag.textContent = 'MODO: BOT';
       this.pingText.textContent = 'LOCAL: 0ms';
+      this.updateScoreboardDisplays();
 
       this.showGameScreen();
       this.startCountdown(seed, Date.now() + 5200); // 5-second countdown!
     });
 
-    // 12. Copy Link Button
+    // 12. Copy Code Button
+    if (this.copyCodeBtn) {
+      this.copyCodeBtn.addEventListener('click', () => {
+        const code = this.displayRoomCode.textContent || '';
+        navigator.clipboard.writeText(code);
+        this.showCopyFeedback('¡Código copiado!');
+      });
+    }
+
+    // 13. Copy Link Button
     this.copyLinkBtn.addEventListener('click', () => {
       navigator.clipboard.writeText(this.roomLinkInput.value);
-      this.copyFeedback.classList.remove('hidden');
-      setTimeout(() => this.copyFeedback.classList.add('hidden'), 2500);
+      this.showCopyFeedback('¡Enlace copiado!');
     });
 
-    // 13. Exit Game Button
+    // 14. Kick Rival Button (Host Only)
+    if (this.kickRivalBtn) {
+      this.kickRivalBtn.addEventListener('click', () => {
+        if (!this.p2p.isHost) return;
+        this.p2p.kickPeer('Has sido expulsado de la sala por el anfitrión.');
+        this.remoteProfile = null;
+        this.remoteWantsRematch = false;
+        this.remoteInLobby = false;
+        this.hostStartBtn.classList.add('hidden');
+        this.hostStatusBox.innerHTML = '<span class="pulsing-dot"></span> Rival expulsado. Esperando a un nuevo jugador...';
+        this.updateLobbyCards();
+        this.updateScoreboardDisplays();
+      });
+    }
+
+    // 15. Exit Game Button (Header)
     this.exitGameBtn.addEventListener('click', () => {
-      this.exitToLobby();
+      this.fullExitToMainMenu();
     });
 
-    // 14. Rematch Button
-    this.rematchBtn.addEventListener('click', () => {
+    // 16. Lobby Game Button (Header)
+    this.lobbyGameBtn.addEventListener('click', () => {
+      this.returnToLobbyFromGame();
+    });
+
+    // 17. Modal Rematch Button (Double Confirmation)
+    this.modalRematchBtn.addEventListener('click', () => {
+      this.handleRematchClick();
+    });
+
+    // 18. Modal Go to Lobby (To change skin/color without leaving session)
+    this.modalToLobbyBtn.addEventListener('click', () => {
+      this.returnToLobbyFromGame();
+    });
+
+    // 19. Modal Exit Button (Full Exit)
+    this.modalExitBtn.addEventListener('click', () => {
+      this.fullExitToMainMenu();
+    });
+
+    // 20. Guest Ready in Lobby Button
+    this.guestReadyBtn.addEventListener('click', () => {
+      this.p2p.send({ type: 'PLAYER_READY_IN_LOBBY' });
+      this.guestStatusBox.innerHTML = '<span class="pulsing-dot"></span> ¡Listo! Esperando a que el host inicie...';
+    });
+  }
+
+  private updateScoreboardDisplays(): void {
+    const rawRivalName = this.isBotMode ? 'BOT' : this.remoteProfile?.name || 'RIVAL';
+    const rivalName = sanitizeTextNoEmojis(rawRivalName) || 'RIVAL';
+    const summary = this.sessionScore.formatBadge(this.profile.name, rivalName);
+    this.sessionScoreTag.textContent = summary;
+    this.modalSeriesBadge.textContent = summary;
+    this.hostScoreBadge.textContent = summary;
+    this.guestScoreBadge.textContent = summary;
+    this.hostScoreBadge.classList.remove('hidden');
+    this.guestScoreBadge.classList.remove('hidden');
+  }
+
+  private updateRematchModalView(): void {
+    const state = this.sessionScore.formatRematchState(
+      this.localWantsRematch,
+      this.remoteWantsRematch,
+      this.remoteInLobby
+    );
+    this.modalRematchText.textContent = state.buttonText;
+    if (state.statusText) {
+      this.modalRematchStatus.textContent = state.statusText;
+      this.modalRematchStatus.classList.remove('hidden');
+    } else {
+      this.modalRematchStatus.classList.add('hidden');
+    }
+  }
+
+  private handleRematchClick(): void {
+    if (this.localWantsRematch) return; // Already ready, waiting
+
+    this.localWantsRematch = true;
+    this.updateRematchModalView();
+
+    if (this.isBotMode) {
+      // Simulate bot confirming rematch after 350ms
+      setTimeout(() => {
+        if (!this.localWantsRematch) return;
+        this.remoteWantsRematch = true;
+        this.updateRematchModalView();
+        setTimeout(() => {
+          const newSeed = Math.floor(Math.random() * 1000000);
+          this.startCountdown(newSeed, Date.now() + 5200);
+        }, 300);
+      }, 350);
+      return;
+    }
+
+    // Multiplayer
+    this.p2p.send({ type: 'REMATCH_READY' });
+
+    if (this.remoteWantsRematch && this.p2p.isHost) {
       const newSeed = Math.floor(Math.random() * 1000000);
       const startTimestamp = Date.now() + 5200; // 5-second countdown!
-      if (this.isBotMode && this.bot) {
-        this.startCountdown(newSeed, startTimestamp);
-      } else {
-        this.p2p.send({ type: 'REMATCH_REQUEST', seed: newSeed });
-        this.p2p.send({ type: 'START_GAME', seed: newSeed, startTimestamp });
-        this.startCountdown(newSeed, startTimestamp);
-      }
-    });
+      this.p2p.send({ type: 'START_GAME', seed: newSeed, startTimestamp });
+      this.startCountdown(newSeed, startTimestamp);
+    }
+  }
+
+  private returnToLobbyFromGame(): void {
+    this.localWantsRematch = false;
+    this.remoteWantsRematch = false;
+    this.isMatchRunning = false;
+    this.countdownEndTime = null;
+    this.matchOverlay = null;
+
+    this.resultModal.classList.add('hidden');
+    this.gameScreen.classList.remove('active');
+    this.lobbyScreen.classList.add('active');
+
+    this.updateScoreboardDisplays();
+
+    if (this.isBotMode) {
+      this.roomMenuView.classList.remove('hidden');
+      this.hostRoomView.classList.add('hidden');
+      this.joinRoomView.classList.add('hidden');
+      this.guestRoomView.classList.add('hidden');
+      return;
+    }
+
+    // Multiplayer: maintain P2P connection alive!
+    this.p2p.send({ type: 'PLAYER_IN_LOBBY' });
+
+    if (this.p2p.isHost) {
+      this.roomMenuView.classList.add('hidden');
+      this.joinRoomView.classList.add('hidden');
+      this.guestRoomView.classList.add('hidden');
+      this.hostRoomView.classList.remove('hidden');
+      this.hostStartBtn.classList.remove('hidden');
+      const rivalName = this.remoteProfile?.name || 'Rival';
+      const rivalColor = this.remoteProfile?.color || '#fff';
+      this.hostStatusBox.innerHTML = `En sala con <strong style="color: ${rivalColor}">${rivalName}</strong>. Cambia tu skin o color y pulsa INICIAR PARTIDA cuando ambos estén listos.`;
+    } else {
+      this.roomMenuView.classList.add('hidden');
+      this.joinRoomView.classList.add('hidden');
+      this.hostRoomView.classList.add('hidden');
+      this.guestRoomView.classList.remove('hidden');
+      this.guestReadyBtn.classList.remove('hidden');
+      const rivalName = this.remoteProfile?.name || 'Host';
+      const rivalColor = this.remoteProfile?.color || '#fff';
+      this.guestStatusBox.innerHTML = `En sala con <strong style="color: ${rivalColor}">${rivalName}</strong>. Cambia tu skin o color. Pulsa LISTO PARA JUGAR cuando termines.`;
+    }
+
+    this.updateLobbyCards();
+  }
+
+  private fullExitToMainMenu(): void {
+    this.p2p.cleanup();
+    this.isBotMode = false;
+    this.bot = null;
+    this.remoteProfile = null;
+    this.sessionScore.reset();
+    this.localWantsRematch = false;
+    this.remoteWantsRematch = false;
+    this.remoteInLobby = false;
+
+    sessionStorage.removeItem('active_host_room');
+    sessionStorage.removeItem('dino_host_tab');
+    if (this.p2p && this.p2p.isHost) {
+      localStorage.removeItem('dino_active_host_room');
+      localStorage.removeItem('dino_host_timestamp');
+    }
+
+    this.gameScreen.classList.remove('active');
+    this.lobbyScreen.classList.add('active');
+
+    // Return to main menu panel
+    this.hostRoomView.classList.add('hidden');
+    this.joinRoomView.classList.add('hidden');
+    this.guestRoomView.classList.add('hidden');
+    this.roomMenuView.classList.remove('hidden');
+
+    this.hostScoreBadge.classList.add('hidden');
+    this.guestScoreBadge.classList.add('hidden');
+    this.hostStartBtn.classList.add('hidden');
+    this.guestReadyBtn.classList.add('hidden');
+    this.hostStatusBox.innerHTML = '<span class="pulsing-dot"></span> Esperando a que el rival entre con el enlace...';
+
+    this.resultModal.classList.add('hidden');
+    this.isMatchRunning = false;
+    this.countdownEndTime = null;
+    this.matchOverlay = null;
+    this.localDeathDistance = null;
+    this.remoteDeathDistance = null;
+    this.botDeathDistance = null;
+    this.physicsAccumulator = 0;
+    this.lastFrameTime = 0;
+
+    this.updateLobbyCards();
+
+    if (window.location.search) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
   }
 
   private async joinRoom(code: string): Promise<void> {
     this.hideError();
+    const cleanCode = (code || '').trim().toUpperCase();
+
+    const hostRoom = localStorage.getItem('dino_active_host_room') || sessionStorage.getItem('active_host_room');
+    if (!canJoinRoom(cleanCode, hostRoom)) {
+      this.showError('No puedes unirte a tu propia sala desde el mismo navegador.');
+      return;
+    }
+
     this.isBotMode = false;
-    this.gameRoomCode.textContent = code;
+    this.sessionScore.reset();
+    this.updateScoreboardDisplays();
+    this.gameModeTag.textContent = `SALA: ${cleanCode}`;
 
     // Show guest waiting room panel immediately
     this.roomMenuView.classList.add('hidden');
     this.joinRoomView.classList.add('hidden');
     this.guestRoomView.classList.remove('hidden');
-    this.guestDisplayRoomCode.textContent = code;
+    this.guestDisplayRoomCode.textContent = cleanCode;
     this.guestStatusBox.innerHTML = '<span class="pulsing-dot"></span> Conectando a la sala...';
+    this.updateLobbyCards();
 
     try {
-      await this.p2p.joinRoom(code);
+      await this.p2p.joinRoom(cleanCode);
     } catch {
       this.showError('No se pudo conectar a la sala.');
-      this.exitToLobby();
+      this.fullExitToMainMenu();
     }
+  }
+
+  private showCopyFeedback(msg: string): void {
+    if (this.copyFeedbackText) this.copyFeedbackText.textContent = msg;
+    this.copyFeedback.classList.remove('hidden');
+    setTimeout(() => this.copyFeedback.classList.add('hidden'), 2500);
+  }
+
+  private renderAvatarOnCanvas(
+    canvas: HTMLCanvasElement | null,
+    skinId: string,
+    color: string
+  ): void {
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, 40, 40);
+    ctx.imageSmoothingEnabled = false;
+
+    const img =
+      this.spriteManager.getImage('/dino-skins.png') ||
+      this.spriteManager.getImage('/dino-classic.png');
+    if (!img) return;
+
+    const frame = Math.floor(this.previewAnimTimer * 2.5) % 2;
+    const skin = SKINS[skinId] || SKINS.classic || Object.values(SKINS)[0];
+    if (!skin || !skin.run || !skin.run[frame]) return;
+    const spriteRect = skin.run[frame];
+    if (!spriteRect) return;
+
+    // Draw centered 28x30 sprite on 40x40 canvas
+    const targetW = 28;
+    const targetH = 30;
+    const x = Math.round((40 - targetW) / 2);
+    const y = Math.round((40 - targetH) / 2);
+
+    ctx.drawImage(
+      img,
+      spriteRect.x,
+      spriteRect.y,
+      spriteRect.w,
+      spriteRect.h,
+      x,
+      y,
+      targetW,
+      targetH
+    );
+  }
+
+  private updateLobbyAvatars(): void {
+    if (!this.lobbyScreen.classList.contains('active')) return;
+
+    if (!this.hostRoomView.classList.contains('hidden')) {
+      this.renderAvatarOnCanvas(this.hostAvatarCanvas, this.profile.skinId, this.profile.color);
+      if (this.remoteProfile) {
+        this.renderAvatarOnCanvas(this.guestAvatarCanvas, this.remoteProfile.skinId, this.remoteProfile.color);
+      }
+    } else if (!this.guestRoomView.classList.contains('hidden')) {
+      if (this.remoteProfile) {
+        this.renderAvatarOnCanvas(this.guestViewHostAvatar, this.remoteProfile.skinId, this.remoteProfile.color);
+      }
+      this.renderAvatarOnCanvas(this.guestViewMyAvatar, this.profile.skinId, this.profile.color);
+    }
+  }
+
+  private updateLobbyCards(): void {
+    // 1. Host View: Card 1 (Local Player)
+    if (this.hostCardName) {
+      this.hostCardName.textContent = this.profile.name || 'Dino';
+      this.hostCardName.style.color = this.profile.color || '#fff';
+    }
+    if (this.hostCardSkin) {
+      this.hostCardSkin.textContent = SKINS[this.profile.skinId]?.name || 'T-Rex Clásico HD';
+    }
+
+    // 2. Host View: Card 2 (Remote Player or Empty Slot)
+    if (this.remoteProfile) {
+      this.guestCard?.classList.remove('empty-slot');
+      this.guestCardEmpty?.classList.add('hidden');
+      this.guestCardContent?.classList.remove('hidden');
+      if (this.guestCardName) {
+        this.guestCardName.textContent = this.remoteProfile.name || 'Rival';
+        this.guestCardName.style.color = this.remoteProfile.color || '#fff';
+      }
+      if (this.guestCardSkin) {
+        this.guestCardSkin.textContent = SKINS[this.remoteProfile.skinId]?.name || 'T-Rex Clásico HD';
+      }
+      if (this.guestCardStatus) {
+        this.guestCardStatus.textContent = this.remoteInLobby ? 'EN EL LOBBY' : 'LISTO';
+      }
+    } else {
+      this.guestCard?.classList.add('empty-slot');
+      this.guestCardEmpty?.classList.remove('hidden');
+      this.guestCardContent?.classList.add('hidden');
+    }
+
+    // 3. Guest View: Host Card (Remote) and My Card (Local)
+    if (this.remoteProfile) {
+      if (this.guestViewHostName) {
+        this.guestViewHostName.textContent = this.remoteProfile.name || 'Host';
+        this.guestViewHostName.style.color = this.remoteProfile.color || '#fff';
+      }
+      if (this.guestViewHostSkin) {
+        this.guestViewHostSkin.textContent = SKINS[this.remoteProfile.skinId]?.name || 'T-Rex Clásico HD';
+      }
+    }
+    if (this.guestViewMyName) {
+      this.guestViewMyName.textContent = this.profile.name || 'Dino';
+      this.guestViewMyName.style.color = this.profile.color || '#fff';
+    }
+    if (this.guestViewMySkin) {
+      this.guestViewMySkin.textContent = SKINS[this.profile.skinId]?.name || 'T-Rex Clásico HD';
+    }
+
+    this.updateLobbyAvatars();
   }
 
   private renderSkinPreview(): void {
@@ -576,8 +1064,10 @@ class DinoApp {
 
     // Calm preview animation cadence: 2.5 steps per second
     const frame = Math.floor(this.previewAnimTimer * 2.5) % 2;
-    const skin = SKINS[this.profile.skinId] || SKINS.classic;
+    const skin = SKINS[this.profile.skinId] || SKINS.classic || Object.values(SKINS)[0];
+    if (!skin || !skin.run || !skin.run[frame]) return;
     const spriteRect = skin.run[frame];
+    if (!spriteRect) return;
 
     // Draw at 2x scale crisp pixel art in the center
     const targetW = 44 * 1.5;
@@ -600,6 +1090,19 @@ class DinoApp {
 
   private setupInputListeners(): void {
     window.addEventListener('keydown', (e) => {
+      // If end-game modal is open, Enter/Space triggers rematch, Escape exits
+      if (!this.resultModal.classList.contains('hidden')) {
+        if (e.code === 'Enter' || e.code === 'Space') {
+          e.preventDefault();
+          this.handleRematchClick();
+          return;
+        } else if (e.code === 'Escape') {
+          e.preventDefault();
+          this.returnToLobbyFromGame();
+          return;
+        }
+      }
+
       if (['Space', 'ArrowUp', 'KeyW'].includes(e.code)) {
         e.preventDefault();
         this.localEngine.handleInput(DinoAction.JUMP);
@@ -683,31 +1186,7 @@ class DinoApp {
   }
 
   private exitToLobby(): void {
-    this.p2p.cleanup();
-    this.isBotMode = false;
-    this.bot = null;
-
-    this.gameScreen.classList.remove('active');
-    this.lobbyScreen.classList.add('active');
-
-    // Return to main menu panel
-    this.hostRoomView.classList.add('hidden');
-    this.joinRoomView.classList.add('hidden');
-    this.guestRoomView.classList.add('hidden');
-    this.roomMenuView.classList.remove('hidden');
-
-    this.hostStartBtn.classList.add('hidden');
-    this.hostStatusBox.innerHTML = '<span class="pulsing-dot"></span> Esperando a que el rival entre con el enlace...';
-
-    this.rematchBar.classList.add('hidden');
-    this.isMatchRunning = false;
-    this.countdownEndTime = null;
-    this.matchOverlay = null;
-    this.localDeathDistance = null;
-    this.remoteDeathDistance = null;
-    this.botDeathDistance = null;
-    this.physicsAccumulator = 0;
-    this.lastFrameTime = 0;
+    this.fullExitToMainMenu();
   }
 
   private showError(msg: string): void {
@@ -727,6 +1206,7 @@ class DinoApp {
 
     this.previewAnimTimer += dt;
     this.renderSkinPreview();
+    this.updateLobbyAvatars();
 
     if (this.gameScreen.classList.contains('active')) {
       let countdownText: string | null = null;

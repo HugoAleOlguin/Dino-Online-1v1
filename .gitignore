@@ -2,3 +2,11 @@ node_modules
 dist
 .env
 .DS_Store
+
+# Temporary trailer build frames & media
+*.mp4
+demo.html
+public/demo.html
+public/trailer.html
+public/trailer-audio.wav
+public/*.jpg

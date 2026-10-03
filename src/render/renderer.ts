@@ -1,6 +1,7 @@
 import { SpriteManager, SKINS, SkinAnimationSet, CHROMIUM_SPRITES } from './sprites';
 import { GameEngine } from '../core/game-engine';
 import { Obstacle } from '../core/obstacles';
+import { calculateDinoNameBadgePos, sanitizeTextNoEmojis } from './ui-helpers';
 
 export interface PlayerVisualState {
   name: string;
@@ -77,7 +78,7 @@ export class DoubleTrackRenderer {
       ctx.fillStyle = pulse > 0.5 ? '#f1c40f' : '#ffffff';
       ctx.font = 'bold 11px "Press Start 2P", monospace';
       ctx.textAlign = 'center';
-      ctx.fillText('🏆 ¡RIVAL ELIMINADO! CORRE POR EL RÉCORD 🏆', this.vWidth / 2, this.track1GroundY - 145);
+      ctx.fillText('¡RIVAL ELIMINADO! CORRE POR EL RÉCORD', this.vWidth / 2, this.track1GroundY - 145);
     }
 
     // 3. Middle Divider (Subtle minimalist line)
@@ -162,11 +163,11 @@ export class DoubleTrackRenderer {
 
       ctx.font = 'bold 12px "Press Start 2P", monospace';
       ctx.fillStyle = accentColor;
-      ctx.fillText(`▶ ${label}: ${player.name.substring(0, 13)}`, 28, groundY - 181);
+      ctx.fillText(`${label}: ${player.name.substring(0, 13)}`, 28, groundY - 181);
     } else {
       ctx.font = 'bold 12px "Press Start 2P", monospace';
       ctx.fillStyle = accentColor;
-      ctx.fillText(`  ${label}: ${player.name.substring(0, 13)}`, 28, groundY - 181);
+      ctx.fillText(`${label}: ${player.name.substring(0, 13)}`, 28, groundY - 181);
     }
 
     // Classic 5-digit Distance Counter on the right (like Google Dino: HI 00000  00450)
@@ -214,11 +215,6 @@ export class DoubleTrackRenderer {
     // Dino
     this.drawDino(player, dinoScreenX, groundY);
 
-    // Pre-game clear visual indicator ("¿Quién soy yo antes de empezar?")
-    if (isCountdown) {
-      this.drawPreGameIndicator(isLocal, dinoScreenX, groundY, accentColor);
-    }
-
     // If player crashed
     if (player.isDead) {
       ctx.fillStyle = 'rgba(32, 33, 36, 0.65)';
@@ -228,39 +224,6 @@ export class DoubleTrackRenderer {
       ctx.font = 'bold 15px "Press Start 2P", monospace';
       ctx.textAlign = 'center';
       ctx.fillText('CRASH', dinoScreenX + 30, groundY - 70);
-    }
-  }
-
-  private drawPreGameIndicator(
-    isLocal: boolean,
-    dinoScreenX: number,
-    groundY: number,
-    accentColor: string
-  ): void {
-    const ctx = this.ctx;
-    const now = performance.now();
-    const bounce = Math.round(Math.sin(now / 140) * 5);
-    const tagY = groundY - 70 + bounce;
-
-    if (isLocal) {
-      // Prominent bouncing marker directly over local dino
-      ctx.fillStyle = '#f1c40f';
-      ctx.font = 'bold 11px "Press Start 2P", monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('▼ TÚ (P1) ▼', dinoScreenX + 22, tagY);
-
-      // Downward pointer arrow
-      ctx.beginPath();
-      ctx.moveTo(dinoScreenX + 16, tagY + 6);
-      ctx.lineTo(dinoScreenX + 28, tagY + 6);
-      ctx.lineTo(dinoScreenX + 22, tagY + 14);
-      ctx.fill();
-    } else {
-      // Muted marker over rival dino
-      ctx.fillStyle = '#70757a';
-      ctx.font = 'bold 9px "Press Start 2P", monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('RIVAL', dinoScreenX + 22, tagY + 4);
     }
   }
 
@@ -303,6 +266,45 @@ export class DoubleTrackRenderer {
       ctx.fillStyle = '#acacac';
       ctx.fillRect(x, screenY, renderWidth || 44, renderHeight || 47);
     }
+
+    // Floating Nickname Badge strictly above the dinosaur (guaranteed 14px clearance)
+    this.drawDinoNickBadge(player, x, renderWidth || 44, renderHeight, groundY);
+  }
+
+  private drawDinoNickBadge(
+    player: PlayerVisualState,
+    x: number,
+    dinoWidth: number,
+    dinoHeight: number,
+    groundY: number
+  ): void {
+    const ctx = this.ctx;
+    // Guaranteed 14px clearance so the nickname NEVER touches or obscures the dino sprite
+    const badgePos = calculateDinoNameBadgePos({
+      groundY,
+      dinoHeight,
+      jumpY: player.y,
+      dinoScreenX: x,
+      dinoWidth,
+      clearance: 14,
+    });
+
+    const cleanName = sanitizeTextNoEmojis(player.name.substring(0, 12)).toUpperCase();
+    const displayName = cleanName || (player.isLocal ? 'TU DINO' : 'RIVAL');
+
+    ctx.font = 'bold 9px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+
+    // High-contrast dark outline ensuring 100% legibility over clouds and background
+    ctx.strokeStyle = '#101112';
+    ctx.lineWidth = 3;
+    ctx.lineJoin = 'miter';
+    ctx.strokeText(displayName, badgePos.x, badgePos.y);
+
+    // Player's chosen customized color
+    ctx.fillStyle = player.color || '#ffffff';
+    ctx.fillText(displayName, badgePos.x, badgePos.y);
   }
 
   private drawObstacle(obs: Obstacle, screenX: number, groundY: number): void {
@@ -394,16 +396,16 @@ export class DoubleTrackRenderer {
 
     // Prominent clarity guide
     ctx.fillStyle = '#f1c40f';
-    ctx.font = 'bold 13px "Press Start 2P", monospace';
-    ctx.fillText('⬆ TÚ ERES EL DINO DE ARRIBA (PISTA 1)', this.vWidth / 2, this.vHeight / 2 + 25);
+    ctx.font = 'bold 12px "Press Start 2P", monospace';
+    ctx.fillText('PISTA 1: TU DINO (ARRIBA)', this.vWidth / 2, this.vHeight / 2 + 25);
 
     ctx.fillStyle = '#acacac';
     ctx.font = '10px "Press Start 2P", monospace';
-    ctx.fillText('⬇ EL RIVAL CORRE ABAJO (PISTA 2)', this.vWidth / 2, this.vHeight / 2 + 52);
+    ctx.fillText('PISTA 2: RIVAL (ABAJO)', this.vWidth / 2, this.vHeight / 2 + 52);
 
     ctx.fillStyle = '#70757a';
     ctx.font = '9px "Press Start 2P", monospace';
-    ctx.fillText('[ESPACIO / ARRIBA]: SALTAR   |   [FLECHA ABAJO]: AGACHARSE', this.vWidth / 2, this.vHeight / 2 + 82);
+    ctx.fillText('[ESPACIO / ARRIBA]: SALTAR   |   [ABAJO]: AGACHARSE', this.vWidth / 2, this.vHeight / 2 + 82);
   }
 
   private drawSpectatingOverlay(myDistance: number): void {
@@ -424,7 +426,7 @@ export class DoubleTrackRenderer {
 
     ctx.fillStyle = '#f1c40f';
     ctx.font = '10px "Press Start 2P", monospace';
-    ctx.fillText('👀 MODO ESPECTADOR: EL RIVAL SIGUE CORRIENDO ABAJO', this.vWidth / 2, 145);
+    ctx.fillText('MODO ESPECTADOR: EL RIVAL SIGUE CORRIENDO ABAJO', this.vWidth / 2, 145);
 
     ctx.fillStyle = '#70757a';
     ctx.font = '9px "Press Start 2P", monospace';

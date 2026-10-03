@@ -57,43 +57,103 @@
             <!-- VIEW 1: Main Menu Options -->
             <div id="room-menu-view" class="action-stack">
               <button id="create-room-btn" class="classic-btn classic-btn-primary">
-                ⚡ CREAR SALA MULTIJUGADOR
+                <img src="/icons/zap.svg" width="16" height="16" alt="" class="btn-icon">
+                <span>CREAR SALA MULTIJUGADOR</span>
               </button>
 
               <button id="show-join-btn" class="classic-btn">
-                🔑 UNIRSE CON CÓDIGO
+                <img src="/icons/flag.svg" width="16" height="16" alt="" class="btn-icon">
+                <span>UNIRSE CON CÓDIGO</span>
               </button>
 
               <div class="separator-line"><span>O EN SOLITARIO</span></div>
 
               <button id="play-bot-btn" class="classic-btn classic-btn-bot">
-                🤖 JUGAR CONTRA BOT
+                <img src="/icons/android.svg" width="16" height="16" alt="" class="btn-icon">
+                <span>JUGAR CONTRA BOT</span>
               </button>
             </div>
 
             <!-- VIEW 2: Host Room Created (Replaces View 1 completely!) -->
             <div id="host-room-view" class="room-panel hidden">
               <div class="panel-header">
-                <span class="panel-label">SALA CREADA:</span>
+                <span class="panel-label">SALA DE ESPERA</span>
                 <span id="display-room-code" class="code-badge">----</span>
               </div>
+
+              <div id="host-score-badge" class="session-score-pill hidden">
+                TÚ: 0 | RIVAL: 0
+              </div>
               
-              <p class="panel-desc">Enlace para tu rival:</p>
-              <div class="full-link-box">
-                <input type="text" id="room-link-input" readonly>
-                <button id="copy-link-btn" class="classic-btn btn-compact">COPIAR ENLACE</button>
+              <!-- Quick & Simple Copy Buttons -->
+              <div class="quick-copy-group">
+                <button id="copy-code-btn" class="classic-btn btn-compact">
+                  <img src="/icons/zap.svg" width="14" height="14" alt="" class="btn-icon">
+                  <span>COPIAR CÓDIGO</span>
+                </button>
+                <button id="copy-link-btn" class="classic-btn btn-compact">
+                  <img src="/icons/flag.svg" width="14" height="14" alt="" class="btn-icon">
+                  <span>COPIAR ENLACE</span>
+                </button>
               </div>
-              <p id="copy-feedback" class="feedback-msg hidden">✓ ¡Enlace copiado al portapapeles!</p>
+              <input type="hidden" id="room-link-input">
+              <p id="copy-feedback" class="feedback-msg hidden">
+                <img src="/icons/check.svg" width="12" height="12" alt="" class="inline-icon">
+                <span id="copy-feedback-text">¡Copiado!</span>
+              </p>
 
-              <div id="host-status-box" class="waiting-indicator">
-                <span class="pulsing-dot"></span> Esperando a que el rival entre con el enlace...
+              <!-- Player Cards in List Mode -->
+              <div class="lobby-player-list">
+                <div class="list-title">JUGADORES EN LA SALA (1v1)</div>
+
+                <!-- Card 1: Anfitrión (Tú) -->
+                <div id="host-card" class="player-lobby-card host-card">
+                  <div class="card-avatar-box">
+                    <canvas id="host-avatar-canvas" class="card-avatar-canvas" width="40" height="40"></canvas>
+                  </div>
+                  <div class="card-info">
+                    <div class="card-role-row">
+                      <span class="role-badge host-role">ANFITRIÓN (TÚ)</span>
+                    </div>
+                    <span id="host-card-name" class="card-player-name">Dino</span>
+                    <span id="host-card-skin" class="card-player-skin">T-Rex Clásico</span>
+                  </div>
+                </div>
+
+                <!-- Card 2: Rival (Only "ESPERANDO RIVAL..." indicator) -->
+                <div id="guest-card" class="player-lobby-card guest-card empty-slot">
+                  <div id="guest-card-empty" class="empty-slot-content">
+                    <span class="pulsing-dot"></span>
+                    <span class="empty-slot-text">ESPERANDO RIVAL...</span>
+                  </div>
+                  <div id="guest-card-content" class="card-occupied-content hidden">
+                    <div class="card-avatar-box">
+                      <canvas id="guest-avatar-canvas" class="card-avatar-canvas" width="40" height="40"></canvas>
+                    </div>
+                    <div class="card-info">
+                      <div class="card-role-row">
+                        <span class="role-badge guest-role">RIVAL</span>
+                        <span id="guest-card-status" class="status-pill">CONECTADO</span>
+                      </div>
+                      <span id="guest-card-name" class="card-player-name">Rival</span>
+                      <span id="guest-card-skin" class="card-player-skin">Skin</span>
+                    </div>
+                    <button id="kick-rival-btn" class="kick-btn" title="Expulsar de la sala">
+                      <img src="/icons/close.svg" width="12" height="12" alt="" class="btn-icon">
+                      <span>EXPULSAR</span>
+                    </button>
+                  </div>
+                </div>
               </div>
 
-              <button id="host-start-btn" class="classic-btn classic-btn-primary hidden" style="margin-top: 12px; width: 100%;">
-                ▶ INICIAR PARTIDA (5s)
+              <!-- Hidden status box to preserve JS references -->
+              <div id="host-status-box" class="hidden"></div>
+
+              <button id="host-start-btn" class="classic-btn classic-btn-primary hidden" style="margin-top: 10px; width: 100%;">
+                INICIAR PARTIDA (5s)
               </button>
 
-              <button id="cancel-room-btn" class="classic-btn btn-back">← VOLVER AL MENÚ</button>
+              <button id="cancel-room-btn" class="classic-btn btn-back">SALIR DE LA SALA</button>
             </div>
 
             <!-- VIEW 3: Join Room by Code (Replaces View 1 completely!) -->
@@ -103,22 +163,60 @@
                 <input type="text" id="room-code-input" maxlength="4" placeholder="EJ: AB12" autocomplete="off">
                 <button id="join-room-confirm-btn" class="classic-btn classic-btn-primary">ENTRAR</button>
               </div>
-              <button id="cancel-join-btn" class="classic-btn btn-back">← VOLVER AL MENÚ</button>
+              <button id="cancel-join-btn" class="classic-btn btn-back">VOLVER AL MENÚ</button>
             </div>
 
             <!-- VIEW 4: Guest in Room (Waiting for host to start!) -->
             <div id="guest-room-view" class="room-panel hidden">
               <div class="panel-header">
-                <span class="panel-label">SALA:</span>
+                <span class="panel-label">SALA DE ESPERA</span>
                 <span id="guest-display-room-code" class="code-badge">----</span>
               </div>
-              <div id="guest-status-box" class="waiting-indicator">
-                <span class="pulsing-dot"></span> ¡Conectado al Host!
+
+              <div id="guest-score-badge" class="session-score-pill hidden">
+                TÚ: 0 | RIVAL: 0
               </div>
-              <p class="panel-desc" style="color: #f1c40f; margin-top: 10px; font-size: 11px;">
-                Personaliza tu nombre, color y skin a la izquierda. El host iniciará la partida cuando ambos estén listos.
-              </p>
-              <button id="cancel-guest-btn" class="classic-btn btn-back">← SALIR DE LA SALA</button>
+
+              <!-- Guest Player Cards List -->
+              <div class="lobby-player-list">
+                <div class="list-title">JUGADORES EN LA SALA (1v1)</div>
+
+                <!-- Host Card -->
+                <div id="guest-view-host-card" class="player-lobby-card host-card">
+                  <div class="card-avatar-box">
+                    <canvas id="guest-view-host-avatar" class="card-avatar-canvas" width="40" height="40"></canvas>
+                  </div>
+                  <div class="card-info">
+                    <div class="card-role-row">
+                      <span class="role-badge host-role">ANFITRIÓN</span>
+                    </div>
+                    <span id="guest-view-host-name" class="card-player-name">Host</span>
+                    <span id="guest-view-host-skin" class="card-player-skin">Skin</span>
+                  </div>
+                </div>
+
+                <!-- Guest Card (You) -->
+                <div id="guest-view-my-card" class="player-lobby-card guest-card">
+                  <div class="card-avatar-box">
+                    <canvas id="guest-view-my-avatar" class="card-avatar-canvas" width="40" height="40"></canvas>
+                  </div>
+                  <div class="card-info">
+                    <div class="card-role-row">
+                      <span class="role-badge guest-role">RIVAL (TÚ)</span>
+                    </div>
+                    <span id="guest-view-my-name" class="card-player-name">Tú</span>
+                    <span id="guest-view-my-skin" class="card-player-skin">Skin</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Hidden status box to preserve JS references -->
+              <div id="guest-status-box" class="hidden"></div>
+
+              <button id="guest-ready-btn" class="classic-btn classic-btn-primary hidden" style="margin-top: 10px; width: 100%;">
+                LISTO PARA JUGAR
+              </button>
+              <button id="cancel-guest-btn" class="classic-btn btn-back">SALIR DE LA SALA</button>
             </div>
 
             <div id="error-message" class="alert-box hidden"></div>
@@ -126,7 +224,7 @@
         </div>
 
         <footer class="dino-footer">
-          <p>PC: <kbd>Espacio</kbd> / <kbd>&uarr;</kbd> Saltar &bull; <kbd>&darr;</kbd> Agacharse | Móvil: Toca para saltar</p>
+          <p>PC: <kbd>Espacio</kbd> / <kbd>Arriba</kbd> Saltar &bull; <kbd>Abajo</kbd> Agacharse | Móvil: Toca para saltar</p>
         </footer>
 
       </div>
@@ -137,30 +235,58 @@
       <div class="game-top-bar">
         <div class="stat-tag" id="ping-text">PING: --ms</div>
         <div class="stat-tag" id="game-mode-tag">SALA: <span id="game-room-code">----</span></div>
-        <button id="exit-game-btn" class="classic-btn btn-compact">SALIR</button>
+        <div class="stat-tag scoreboard-tag" id="session-score-tag">MARCADOR: TÚ 0 - 0 RIVAL</div>
+        <div class="top-bar-actions">
+          <button id="lobby-game-btn" class="classic-btn btn-compact">LOBBY</button>
+          <button id="exit-game-btn" class="classic-btn btn-compact btn-exit">SALIR</button>
+        </div>
       </div>
 
       <div class="canvas-frame">
         <canvas id="game-canvas" width="960" height="540"></canvas>
+
+        <!-- Centered Arcade End-Game Overlay (Victory / Defeat / Tie) -->
+        <div id="game-result-modal" class="game-modal-overlay hidden">
+          <div class="modal-card">
+            <div id="modal-icon-badge" class="modal-icon-badge">
+              <img id="modal-result-icon" src="/icons/trophy.svg" alt="" width="32" height="32">
+            </div>
+            <h2 id="modal-result-title" class="modal-title">VICTORIA</h2>
+            <p id="modal-result-sub" class="modal-subtitle">¡HAS GANADO EL DUELO!</p>
+
+            <div class="modal-stats-box">
+              <div id="modal-scores-line" class="modal-scores">TÚ: 0 m vs RIVAL: 0 m</div>
+              <div id="modal-diff-badge" class="modal-diff">+0 METROS DE VENTAJA</div>
+              <div id="modal-series-badge" class="modal-series-score">MARCADOR: TÚ 0 - 0 RIVAL</div>
+            </div>
+
+            <!-- Double Confirmation Status Message -->
+            <div id="modal-rematch-status" class="rematch-status-msg hidden"></div>
+
+            <div class="modal-actions">
+              <button id="modal-rematch-btn" class="classic-btn classic-btn-primary btn-large">
+                <img src="/icons/reload.svg" width="16" height="16" alt="" class="btn-icon">
+                <span id="modal-rematch-text">REVANCHA</span>
+              </button>
+              <button id="modal-to-lobby-btn" class="classic-btn btn-secondary">
+                CAMBIAR SKIN (IR AL LOBBY)
+              </button>
+              <button id="modal-exit-btn" class="classic-btn btn-back">
+                SALIR DE LA SALA
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Mobile Touch Controls -->
       <div id="touch-controls" class="touch-controls">
         <button id="touch-duck-btn" class="mobile-key">
-          &darr; AGACHAR
+          AGACHAR
         </button>
         <button id="touch-jump-btn" class="mobile-key mobile-key-jump">
-          &uarr; SALTAR
+          SALTAR
         </button>
-      </div>
-
-      <!-- Rematch Banner -->
-      <div id="rematch-bar" class="rematch-card hidden">
-        <div class="rematch-text">
-          <span class="rematch-headline">CARRERA TERMINADA</span>
-          <span class="rematch-sub">¿Jugar otra partida?</span>
-        </div>
-        <button id="rematch-btn" class="classic-btn classic-btn-primary">REVANCHA</button>
       </div>
     </div>
   </div>

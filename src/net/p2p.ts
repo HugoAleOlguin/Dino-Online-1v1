@@ -22,6 +22,10 @@ export type NetMessage =
     }
   | { type: 'DIED'; score: number; distance: number }
   | { type: 'REMATCH_REQUEST'; seed: number }
+  | { type: 'REMATCH_READY'; seed?: number }
+  | { type: 'PLAYER_IN_LOBBY' }
+  | { type: 'PLAYER_READY_IN_LOBBY' }
+  | { type: 'KICKED'; reason?: string }
   | { type: 'PING'; t: number }
   | { type: 'PONG'; t: number };
 
@@ -40,6 +44,10 @@ export interface P2PEvents {
   }) => void;
   onRemoteDied: (finalScore: number, distance: number) => void;
   onRematchRequested: (seed: number) => void;
+  onRematchReady?: () => void;
+  onRemoteInLobby?: () => void;
+  onRemoteReadyInLobby?: () => void;
+  onKicked?: (reason?: string) => void;
   onPingUpdated: (pingMs: number) => void;
   onError: (error: string) => void;
 }
@@ -199,6 +207,30 @@ export class P2PManager {
         this.events.onRematchRequested(msg.seed);
         break;
 
+      case 'REMATCH_READY':
+        if (this.events.onRematchReady) {
+          this.events.onRematchReady();
+        }
+        break;
+
+      case 'PLAYER_IN_LOBBY':
+        if (this.events.onRemoteInLobby) {
+          this.events.onRemoteInLobby();
+        }
+        break;
+
+      case 'PLAYER_READY_IN_LOBBY':
+        if (this.events.onRemoteReadyInLobby) {
+          this.events.onRemoteReadyInLobby();
+        }
+        break;
+
+      case 'KICKED':
+        if (this.events.onKicked) {
+          this.events.onKicked(msg.reason);
+        }
+        break;
+
       case 'PING':
         this.send({ type: 'PONG', t: msg.t });
         break;
@@ -207,6 +239,20 @@ export class P2PManager {
         const rtt = Date.now() - msg.t;
         this.events.onPingUpdated(Math.round(rtt / 2));
         break;
+    }
+  }
+
+  kickPeer(reason: string = 'Expulsado por el anfitrión'): void {
+    if (this.connection && this.connection.open) {
+      try {
+        this.send({ type: 'KICKED', reason });
+      } catch {}
+      setTimeout(() => {
+        if (this.connection) {
+          this.connection.close();
+          this.connection = null;
+        }
+      }, 50);
     }
   }
 
