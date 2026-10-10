@@ -84,6 +84,15 @@ export function planDisconnectHandling(
   };
 }
 
+export const MAX_PLAYERS = 4;
+
+/**
+ * Checks whether a room has reached its maximum player capacity.
+ */
+export function isRoomFull(currentConnectedCount: number, maxPlayers: number = MAX_PLAYERS): boolean {
+  return currentConnectedCount >= maxPlayers;
+}
+
 /**
  * Formats P2P connection errors into user-friendly Spanish messages.
  * Prevents raw technical English errors (e.g., 'Could not connect to peer ...') from showing in the UI.
@@ -104,6 +113,15 @@ export function formatP2PErrorMessage(err: unknown): string {
 
   const lowerMsg = msg.toLowerCase();
   const lowerType = type.toLowerCase();
+
+  if (
+    lowerType === 'room-full' ||
+    lowerMsg.includes('sala está llena') ||
+    lowerMsg.includes('room-full') ||
+    lowerMsg.includes('room is full')
+  ) {
+    return 'La sala está llena. Ya se ha alcanzado el límite máximo de 4 jugadores.';
+  }
 
   if (
     lowerType === 'peer-unavailable' ||
@@ -135,4 +153,34 @@ export function formatP2PErrorMessage(err: unknown): string {
   }
 
   return msg || 'Error de conexión';
+}
+
+export interface SoloModalDisplayState {
+  distanceText: string;
+  statusText: string;
+  showSeriesBadge: boolean;
+}
+
+/**
+ * Formats clean, non-duplicated stats for the Solo Mode game over modal.
+ */
+export function formatSoloModalDisplay(
+  currentDistance: number,
+  previousHighScore: number
+): SoloModalDisplayState {
+  const isNewRecord = currentDistance > previousHighScore;
+  const distanceText = `DISTANCIA: ${currentDistance} METROS`;
+
+  let statusText = '';
+  if (isNewRecord && currentDistance > 0) {
+    statusText = '¡NUEVO RECORD PERSONAL!';
+  } else if (previousHighScore > 0) {
+    statusText = `RECORD: ${previousHighScore} METROS`;
+  }
+
+  return {
+    distanceText,
+    statusText,
+    showSeriesBadge: false, // In solo mode, series score badge is never shown to avoid duplication
+  };
 }

@@ -246,6 +246,7 @@
         <div class="stat-tag" id="game-mode-tag">SALA: <span id="game-room-code">----</span></div>
         <div class="stat-tag scoreboard-tag" id="session-score-tag">MARCADOR: TÚ 0 - 0 RIVAL</div>
         <div class="top-bar-actions">
+          <button id="debug-toggle-btn" class="classic-btn btn-compact" title="Panel de Debug & Bots (Tecla B)">🛠️ BOTS</button>
           <button id="lobby-game-btn" class="classic-btn btn-compact">LOBBY</button>
           <button id="exit-game-btn" class="classic-btn btn-compact btn-exit">SALIR</button>
         </div>
@@ -297,6 +298,46 @@
           SALTAR
         </button>
       </div>
+    </div>
+  </div>
+
+  <!-- DEBUG / BOTS MODAL PANEL (Tecla 'B' o ?debug) -->
+  <div id="debug-modal" class="game-modal-overlay hidden" style="z-index: 9999;">
+    <div class="modal-card" style="max-width: 480px; text-align: left;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #333; padding-bottom: 8px; margin-bottom: 12px;">
+        <h2 style="margin: 0; font-size: 1.1rem; color: #f1c40f; display: flex; align-items: center; gap: 8px;">
+          🛠️ PANEL DE DEBUG & BOTS
+        </h2>
+        <button id="debug-close-btn" class="classic-btn btn-compact" style="padding: 2px 8px;">✕</button>
+      </div>
+
+      <p style="font-size: 0.8rem; color: #acacac; margin-bottom: 14px;">
+        Atajo: pulsa la tecla <kbd style="background: #222; border: 1px solid #444; padding: 2px 5px; border-radius: 3px; color: #fff;">B</kbd> para abrir/cerrar este panel en cualquier momento.
+      </p>
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <button id="debug-add-bot-btn" class="classic-btn classic-btn-primary" style="width: 100%; text-align: left; padding: 8px 12px;">
+          🤖 <strong>+ Añadir 1 Bot</strong> <span style="font-size: 0.75rem; opacity: 0.8; display: block;">Agrega un bot autónomo con física y reacción real</span>
+        </button>
+
+        <button id="debug-fill-room-btn" class="classic-btn btn-secondary" style="width: 100%; text-align: left; padding: 8px 12px;">
+          👥 <strong>Llenar Sala (4/4 Jugadores)</strong> <span style="font-size: 0.75rem; opacity: 0.8; display: block;">Completa los 4 slots para probar el layout de 4 pantallas y escala 0.58</span>
+        </button>
+
+        <button id="debug-spectate-bot-btn" class="classic-btn btn-secondary" style="width: 100%; text-align: left; padding: 8px 12px;">
+          👀 <strong>Unir Bot en Modo Espectador</strong> <span style="font-size: 0.75rem; opacity: 0.8; display: block;">Simula un bot entrando a mitad de partida</span>
+        </button>
+
+        <button id="debug-test-room-full-btn" class="classic-btn btn-secondary" style="width: 100%; text-align: left; padding: 8px 12px;">
+          🚫 <strong>Simular Intento de Entrada (Sala Llena)</strong> <span style="font-size: 0.75rem; opacity: 0.8; display: block;">Prueba el rechazo explícito y mensaje de sala llena (4/4)</span>
+        </button>
+
+        <button id="debug-clear-bots-btn" class="classic-btn btn-back" style="width: 100%; text-align: left; padding: 8px 12px; margin-top: 6px;">
+          🧹 <strong>Limpiar / Expulsar Todos los Bots</strong>
+        </button>
+      </div>
+
+      <div id="debug-status-text" style="margin-top: 12px; font-size: 0.8rem; color: #2ecc71; font-weight: bold; min-height: 18px;"></div>
     </div>
   </div>
 

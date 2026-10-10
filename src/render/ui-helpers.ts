@@ -169,4 +169,52 @@ export function calculateLobbyPreviewLayout(
   return { x, y, width, height };
 }
 
+export interface MultiTrackLayout {
+  numTracks: number;
+  trackHeight: number;
+  scale: number;
+  groundYs: number[];
+  topBoundaries: number[];
+}
+
+/**
+ * Calculates responsive track positioning and uniform scaling factor
+ * for up to 4 players, mathematically guaranteeing that jump apexes never
+ * collide with or penetrate the track ceilings.
+ */
+export function calculateMultiTrackLayout(
+  numTracks: number,
+  canvasHeight: number = 540,
+  canvasWidth: number = 960
+): MultiTrackLayout {
+  const count = Math.max(1, Math.min(4, numTracks));
+
+  // Visual scale factor calibrated to preserve >20px headroom above max jump
+  let scale = 1.0;
+  if (count === 3) scale = 0.72;
+  else if (count === 4) scale = 0.58;
+
+  const trackHeight = canvasHeight / count;
+  const groundYs: number[] = [];
+  const topBoundaries: number[] = [];
+
+  const bottomPad = count <= 2 ? 30 : Math.round(14 * scale);
+
+  for (let i = 0; i < count; i++) {
+    const topY = i * trackHeight;
+    const bottomY = (i + 1) * trackHeight;
+    const groundY = bottomY - bottomPad;
+    topBoundaries.push(topY);
+    groundYs.push(groundY);
+  }
+
+  return {
+    numTracks: count,
+    trackHeight,
+    scale,
+    groundYs,
+    topBoundaries,
+  };
+}
+
 

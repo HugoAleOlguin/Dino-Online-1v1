@@ -6,6 +6,8 @@ import {
   sanitizeTextNoEmojis,
   resolveDinoRenderFrame,
   getPterodactylWingFrame,
+  calculateMultiTrackLayout,
+  MultiTrackLayout,
 } from './ui-helpers';
 
 export interface PlayerVisualState {
@@ -19,6 +21,16 @@ export interface PlayerVisualState {
   isDucking: boolean;
   isGrounded: boolean;
   isDead: boolean;
+}
+
+export interface TrackRenderData {
+  distance: number;
+  player: PlayerVisualState;
+  obstacles: Obstacle[];
+  label: string;
+  accentColor: string;
+  isLocal: boolean;
+  isSpectating?: boolean;
 }
 
 export type MatchOverlayState =
@@ -58,64 +70,95 @@ export class DoubleTrackRenderer {
     isRivalEliminated: boolean = false,
     isSolo: boolean = false
   ): void {
+    const tracks: TrackRenderData[] = [
+      {
+        distance: localEngine.distance,
+        player: localPlayer,
+        obstacles: localEngine.obstacles,
+        label: 'TU PISTA (P1)',
+        accentColor: localPlayer.color || '#ffffff',
+        isLocal: true,
+      },
+    ];
+
+    if (remotePlayer && !isSolo) {
+      const isBot = remotePlayer.name.includes('BOT');
+      tracks.push({
+        distance: remotePlayer.distance,
+        player: remotePlayer,
+        obstacles: localEngine.obstacles,
+        label: isBot ? 'BOT' : 'PISTA RIVAL (P2)',
+        accentColor: remotePlayer.color || '#acacac',
+        isLocal: false,
+      });
+    }
+
+    this.renderTracks(tracks, overlay, isRivalEliminated, isSolo);
+  }
+
+  renderTracks(
+    tracks: TrackRenderData[],
+    overlay: MatchOverlayState | null = null,
+    isRivalEliminated: boolean = false,
+    isSolo: boolean = false
+  ): void {
     const ctx = this.ctx;
     ctx.imageSmoothingEnabled = false;
 
-    // 1. Classic Chrome Dino Dark Mode Background: #202124
+    // 1. Classic Chrome Dino Dark Mode Background
     ctx.fillStyle = '#202124';
     ctx.fillRect(0, 0, this.vWidth, this.vHeight);
 
-    // 2. Draw Track 1 (Top Track - Player 1 / Local Player)
     const isCountdown = overlay?.type === 'COUNTDOWN';
-    this.drawTrack(
-      this.track1GroundY,
-      localEngine.distance,
-      localPlayer,
-      localEngine.obstacles,
-      'TU PISTA (P1)',
-      localPlayer.color || '#ffffff',
-      true,
-      isCountdown
-    );
+    const numTracks = Math.max(1, tracks.length);
+    const layout = calculateMultiTrackLayout(numTracks, this.vHeight, this.vWidth);
 
-    // Celebratory alert when rival died and local is still running
-    if (isRivalEliminated && !localPlayer.isDead) {
+    for (let i = 0; i < tracks.length; i++) {
+      const track = tracks[i];
+      const groundY = layout.groundYs[i];
+      const topY = layout.topBoundaries[i];
+
+      if (i > 0) {
+        this.drawDividerAt(topY);
+      }
+
+      this.drawTrack(
+        groundY,
+        track.distance,
+        track.player,
+        track.obstacles,
+        track.label,
+        track.accentColor,
+        track.isLocal,
+        isCountdown,
+        layout.scale,
+        topY,
+        layout.trackHeight
+      );
+    }
+
+    if (tracks.length === 1 && !isSolo) {
+      this.drawWaitingTrack(this.track2GroundY, isSolo);
+    }
+
+    // Celebratory alert if rival eliminated and local running in 2-player mode
+    if (isRivalEliminated && tracks[0] && !tracks[0].player.isDead && tracks.length === 2) {
       const now = performance.now();
       const pulse = 0.5 + 0.5 * Math.sin(now / 120);
       ctx.fillStyle = pulse > 0.5 ? '#f1c40f' : '#ffffff';
       ctx.font = 'bold 11px "Press Start 2P", monospace';
       ctx.textAlign = 'center';
-      ctx.fillText('¡RIVAL ELIMINADO! CORRE POR EL RÉCORD', this.vWidth / 2, this.track1GroundY - 145);
+      ctx.fillText('¡RIVAL ELIMINADO! CORRE POR EL RÉCORD', this.vWidth / 2, layout.groundYs[0] - 145);
     }
 
-    // 3. Middle Divider (Subtle minimalist line)
-    this.drawDivider();
-
-    // 4. Draw Track 2 (Bottom Track - Player 2 / Rival or Solo)
-    if (remotePlayer && !isSolo) {
-      const isBot = remotePlayer.name.includes('BOT');
-      this.drawTrack(
-        this.track2GroundY,
-        remotePlayer.distance,
-        remotePlayer,
-        localEngine.obstacles, // Exact same obstacles because identical seed
-        isBot ? 'BOT' : 'PISTA RIVAL (P2)',
-        remotePlayer.color || '#acacac',
-        false,
-        isCountdown
-      );
-    } else {
-      this.drawWaitingTrack(this.track2GroundY, isSolo);
-    }
-
-    // 5. Overlays: Asymmetric Game Over / Spectating / Victory / Solo
+    // 5. Overlays
     if (overlay) {
       switch (overlay.type) {
         case 'COUNTDOWN':
           this.drawCountdownOverlay(overlay.text);
           break;
         case 'LOCAL_CRASHED_SPECTATING':
-          this.drawSpectatingOverlay(overlay.myDistance);
+          this.drawSpectatingOverlay(overlay.myDistance, layout, tracks);
           break;
         case 'VICTORY':
           this.drawVictoryOverlay(overlay.myDistance, overlay.rivalDistance, overlay.rivalName);
@@ -133,16 +176,20 @@ export class DoubleTrackRenderer {
     }
   }
 
-  private drawDivider(): void {
+  public drawDividerAt(y: number): void {
     const ctx = this.ctx;
     ctx.strokeStyle = '#3c4043';
     ctx.lineWidth = 2;
     ctx.setLineDash([10, 10]);
     ctx.beginPath();
-    ctx.moveTo(20, 255);
-    ctx.lineTo(this.vWidth - 20, 255);
+    ctx.moveTo(20, y);
+    ctx.lineTo(this.vWidth - 20, y);
     ctx.stroke();
     ctx.setLineDash([]);
+  }
+
+  private drawDivider(): void {
+    this.drawDividerAt(255);
   }
 
   private drawTrack(
@@ -153,39 +200,49 @@ export class DoubleTrackRenderer {
     label: string,
     accentColor: string,
     isLocal: boolean,
-    isCountdown: boolean
+    isCountdown: boolean,
+    scale: number = 1.0,
+    topY: number = 0,
+    trackHeight: number = 270
   ): void {
     const ctx = this.ctx;
     const spriteImg = this.spriteManager.getImage('/offline-sprite-dark.png');
-    const dinoScreenX = 60;
+    const dinoScreenX = Math.round(60 * (scale < 1.0 ? Math.max(0.7, scale) : 1.0));
 
     // Track Header: Classic Chrome Dino Minimalist typography
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
 
+    const headerFontSize = Math.max(8, Math.round(12 * scale));
+    const headerFont = `bold ${headerFontSize}px "Press Start 2P", monospace`;
+    const headerY = topY + Math.max(6, Math.round(10 * scale));
+
     // Highlight Box for Local Player Track
     if (isLocal) {
+      const boxW = Math.min(380, Math.round(380 * scale));
+      const boxH = Math.max(18, Math.round(26 * scale));
       ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
-      ctx.fillRect(18, groundY - 188, 380, 26);
+      ctx.fillRect(18, headerY - 3, boxW, boxH);
       ctx.strokeStyle = accentColor;
       ctx.lineWidth = 1.5;
-      ctx.strokeRect(18, groundY - 188, 380, 26);
+      ctx.strokeRect(18, headerY - 3, boxW, boxH);
 
-      ctx.font = 'bold 12px "Press Start 2P", monospace';
+      ctx.font = headerFont;
       ctx.fillStyle = accentColor;
-      ctx.fillText(`${label}: ${player.name.substring(0, 13)}`, 28, groundY - 181);
+      ctx.fillText(`${label}: ${player.name.substring(0, 13)}`, 28, headerY + 1);
     } else {
-      ctx.font = 'bold 12px "Press Start 2P", monospace';
+      ctx.font = headerFont;
       ctx.fillStyle = accentColor;
-      ctx.fillText(`${label}: ${player.name.substring(0, 13)}`, 28, groundY - 181);
+      ctx.fillText(`${label}: ${player.name.substring(0, 13)}`, 28, headerY + 1);
     }
 
-    // Classic 5-digit Distance Counter on the right (like Google Dino: HI 00000  00450)
+    // Classic 5-digit Distance Counter on the right
     ctx.textAlign = 'right';
-    ctx.font = 'bold 14px "Press Start 2P", monospace';
+    const scoreFontSize = Math.max(9, Math.round(14 * scale));
+    ctx.font = `bold ${scoreFontSize}px "Press Start 2P", monospace`;
     ctx.fillStyle = '#acacac';
     const scoreStr = Math.floor(distance / 10).toString().padStart(5, '0');
-    ctx.fillText(`${scoreStr} m`, this.vWidth - 30, groundY - 181);
+    ctx.fillText(`${scoreStr} m`, this.vWidth - 30, headerY + 1);
 
     // Drifting authentic clouds in the sky
     if (spriteImg) {
@@ -195,49 +252,52 @@ export class DoubleTrackRenderer {
       const c1Adjusted = c1X < -50 ? c1X + this.vWidth + 100 : c1X;
       const c2Adjusted = c2X < -50 ? c2X + this.vWidth + 100 : c2X;
 
-      ctx.drawImage(spriteImg, CHROMIUM_SPRITES.CLOUD.x, CHROMIUM_SPRITES.CLOUD.y, 46, 14, c1Adjusted, groundY - 145, 46, 14);
-      ctx.drawImage(spriteImg, CHROMIUM_SPRITES.CLOUD.x, CHROMIUM_SPRITES.CLOUD.y, 46, 14, c2Adjusted, groundY - 105, 46, 14);
+      const cW = Math.round(46 * scale);
+      const cH = Math.round(14 * scale);
+      ctx.drawImage(spriteImg, CHROMIUM_SPRITES.CLOUD.x, CHROMIUM_SPRITES.CLOUD.y, 46, 14, c1Adjusted, groundY - Math.round(115 * scale), cW, cH);
+      ctx.drawImage(spriteImg, CHROMIUM_SPRITES.CLOUD.x, CHROMIUM_SPRITES.CLOUD.y, 46, 14, c2Adjusted, groundY - Math.round(80 * scale), cW, cH);
     }
 
     // Authentic Chrome Dino Ground Horizon line: repeating 600px pattern
     if (spriteImg) {
       const horizonW = 600;
       const scrollOffset = Math.floor(distance) % horizonW;
+      const hH = Math.round(12 * scale);
       for (let hx = 20 - scrollOffset; hx < this.vWidth; hx += horizonW) {
-        ctx.drawImage(spriteImg, CHROMIUM_SPRITES.HORIZON.x, CHROMIUM_SPRITES.HORIZON.y, 600, 12, hx, groundY - 4, 600, 12);
+        ctx.drawImage(spriteImg, CHROMIUM_SPRITES.HORIZON.x, CHROMIUM_SPRITES.HORIZON.y, 600, 12, hx, groundY - Math.round(4 * scale), 600, hH);
       }
     } else {
       ctx.strokeStyle = '#535353';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = Math.max(1, Math.round(2 * scale));
       ctx.beginPath();
       ctx.moveTo(20, groundY);
       ctx.lineTo(this.vWidth - 20, groundY);
       ctx.stroke();
     }
 
-    // Obstacles: Drawn with authentic Chromium dark sprites
+    // Obstacles
     for (const obs of obstacles) {
       const screenX = obs.x - distance + dinoScreenX;
       if (screenX < -60 || screenX > this.vWidth + 40) continue;
-      this.drawObstacle(obs, screenX, groundY);
+      this.drawObstacle(obs, screenX, groundY, scale);
     }
 
     // Dino
-    this.drawDino(player, dinoScreenX, groundY);
+    this.drawDino(player, dinoScreenX, groundY, scale);
 
     // If player crashed
     if (player.isDead) {
       ctx.fillStyle = 'rgba(32, 33, 36, 0.65)';
-      ctx.fillRect(20, groundY - 190, this.vWidth - 40, 195);
+      ctx.fillRect(20, topY, this.vWidth - 40, trackHeight);
 
       ctx.fillStyle = '#e74c3c';
-      ctx.font = 'bold 15px "Press Start 2P", monospace';
+      ctx.font = `bold ${Math.max(10, Math.round(15 * scale))}px "Press Start 2P", monospace`;
       ctx.textAlign = 'center';
-      ctx.fillText('CRASH', dinoScreenX + 30, groundY - 70);
+      ctx.fillText('CRASH', dinoScreenX + Math.round(30 * scale), groundY - Math.round(45 * scale));
     }
   }
 
-  private drawDino(player: PlayerVisualState, x: number, groundY: number): void {
+  private drawDino(player: PlayerVisualState, x: number, groundY: number, scale: number = 1.0): void {
     const ctx = this.ctx;
     const skin: SkinAnimationSet = SKINS[player.skinId] || SKINS.classic;
     const img = this.spriteManager.getImage('/dino-skins.png') || this.spriteManager.getImage('/dino-classic.png');
@@ -250,9 +310,9 @@ export class DoubleTrackRenderer {
       player.distance
     );
     const spriteRect = resolved.spriteRect;
-    const renderWidth = resolved.renderWidth;
-    const renderHeight = resolved.renderHeight;
-    const screenY = groundY - renderHeight - player.y;
+    const renderWidth = Math.round((resolved.renderWidth || 44) * scale);
+    const renderHeight = Math.round((resolved.renderHeight || 47) * scale);
+    const screenY = groundY - renderHeight - Math.round(player.y * scale);
 
     if (img) {
       ctx.drawImage(
@@ -271,8 +331,8 @@ export class DoubleTrackRenderer {
       ctx.fillRect(x, screenY, renderWidth || 44, renderHeight || 47);
     }
 
-    // Floating Nickname Badge strictly above the dinosaur (guaranteed 14px clearance)
-    this.drawDinoNickBadge(player, x, renderWidth || 44, renderHeight, groundY);
+    // Floating Nickname Badge strictly above the dinosaur
+    this.drawDinoNickBadge(player, x, renderWidth || 44, renderHeight, groundY, scale);
   }
 
   private drawDinoNickBadge(
@@ -280,29 +340,31 @@ export class DoubleTrackRenderer {
     x: number,
     dinoWidth: number,
     dinoHeight: number,
-    groundY: number
+    groundY: number,
+    scale: number = 1.0
   ): void {
     const ctx = this.ctx;
-    // Guaranteed 14px clearance so the nickname NEVER touches or obscures the dino sprite
+    const clearance = Math.max(8, Math.round(14 * scale));
     const badgePos = calculateDinoNameBadgePos({
       groundY,
       dinoHeight,
-      jumpY: player.y,
+      jumpY: Math.round(player.y * scale),
       dinoScreenX: x,
       dinoWidth,
-      clearance: 14,
+      clearance,
     });
 
     const cleanName = sanitizeTextNoEmojis(player.name.substring(0, 12)).toUpperCase();
     const displayName = cleanName || (player.isLocal ? 'TU DINO' : 'RIVAL');
 
-    ctx.font = 'bold 9px "Press Start 2P", monospace';
+    const fontSize = Math.max(7, Math.round(9 * scale));
+    ctx.font = `bold ${fontSize}px "Press Start 2P", monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
 
     // High-contrast dark outline ensuring 100% legibility over clouds and background
     ctx.strokeStyle = '#101112';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = Math.max(2, Math.round(3 * scale));
     ctx.lineJoin = 'miter';
     ctx.strokeText(displayName, badgePos.x, badgePos.y);
 
@@ -311,63 +373,38 @@ export class DoubleTrackRenderer {
     ctx.fillText(displayName, badgePos.x, badgePos.y);
   }
 
-  private drawObstacle(obs: Obstacle, screenX: number, groundY: number): void {
+  private drawObstacle(obs: Obstacle, screenX: number, groundY: number, scale: number = 1.0): void {
     const ctx = this.ctx;
-    const screenY = groundY - obs.height - obs.y;
+    const obsW = Math.round(obs.width * scale);
+    const obsH = Math.round(obs.height * scale);
+    const screenY = groundY - obsH - Math.round(obs.y * scale);
     const img = this.spriteManager.getImage('/offline-sprite-dark.png');
 
     if (img) {
       if (obs.type === 'CACTUS_SMALL') {
         const s = CHROMIUM_SPRITES.CACTUS_SMALL;
-        ctx.drawImage(img, s.x, s.y, s.w, s.h, screenX, screenY, s.w, s.h);
+        ctx.drawImage(img, s.x, s.y, s.w, s.h, screenX, screenY, obsW, obsH);
         return;
       } else if (obs.type === 'CACTUS_DOUBLE') {
         const s = CHROMIUM_SPRITES.CACTUS_DOUBLE;
-        ctx.drawImage(img, s.x, s.y, s.w, s.h, screenX, screenY, s.w, s.h);
+        ctx.drawImage(img, s.x, s.y, s.w, s.h, screenX, screenY, obsW, obsH);
         return;
       } else if (obs.type === 'CACTUS_LARGE') {
         const s = CHROMIUM_SPRITES.CACTUS_LARGE;
-        ctx.drawImage(img, s.x, s.y, s.w, s.h, screenX, screenY, s.w, s.h);
+        ctx.drawImage(img, s.x, s.y, s.w, s.h, screenX, screenY, obsW, obsH);
         return;
       } else {
         // Pterodactyl wings flap at authentic cadence (alternating every 180ms)
         const wingFrame = getPterodactylWingFrame(Date.now());
         const s = CHROMIUM_SPRITES.PTERODACTYL[wingFrame] || CHROMIUM_SPRITES.PTERODACTYL[0];
-        ctx.drawImage(img, s.x, s.y, s.w, s.h, screenX, screenY, s.w, s.h);
+        ctx.drawImage(img, s.x, s.y, s.w, s.h, screenX, screenY, obsW, obsH);
         return;
       }
     }
 
     // Monochrome Fallback if image not ready yet
     ctx.fillStyle = '#acacac';
-    if (obs.type === 'CACTUS_SMALL') {
-      ctx.fillRect(screenX, screenY + 7, 5, 27);
-      ctx.fillRect(screenX + 4, screenY, 7, 35);
-      ctx.fillRect(screenX + 11, screenY + 4, 6, 14);
-    } else if (obs.type === 'CACTUS_DOUBLE') {
-      ctx.fillRect(screenX, screenY + 7, 5, 27);
-      ctx.fillRect(screenX + 4, screenY, 6, 35);
-      ctx.fillRect(screenX + 10, screenY + 4, 6, 14);
-      ctx.fillRect(screenX + 17, screenY + 7, 5, 27);
-      ctx.fillRect(screenX + 21, screenY, 6, 35);
-      ctx.fillRect(screenX + 27, screenY + 4, 6, 14);
-    } else if (obs.type === 'CACTUS_LARGE') {
-      ctx.fillRect(screenX, screenY + 12, 7, 38);
-      ctx.fillRect(screenX + 8, screenY, 8, 50);
-      ctx.fillRect(screenX + 15, screenY + 10, 10, 38);
-    } else {
-      const wingFrame = getPterodactylWingFrame(Date.now());
-      ctx.fillRect(screenX + 2, screenY + 14, 4, 3);
-      ctx.fillRect(screenX + 6, screenY + 10, 4, 7);
-      ctx.fillRect(screenX + 10, screenY + 8, 6, 9);
-      ctx.fillRect(screenX + 15, screenY + 15, 16, 5);
-      ctx.fillRect(screenX + 18, screenY + 21, 24, 6);
-      if (wingFrame === 0) {
-        ctx.fillRect(screenX + 14, screenY + 4, 8, 12);
-      } else {
-        ctx.fillRect(screenX + 14, screenY + 18, 8, 12);
-      }
-    }
+    ctx.fillRect(screenX, screenY, obsW, obsH);
   }
 
   private drawWaitingTrack(groundY: number, isSolo: boolean = false): void {
@@ -391,34 +428,45 @@ export class DoubleTrackRenderer {
 
   private drawCountdownOverlay(text: string): void {
     const ctx = this.ctx;
-    // Translucent dark veil so dinos and tracks remain visible
     ctx.fillStyle = 'rgba(32, 33, 36, 0.60)';
     ctx.fillRect(0, 0, this.vWidth, this.vHeight);
 
-    // Large Countdown Number
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 54px "Press Start 2P", monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(text, this.vWidth / 2, this.vHeight / 2 - 40);
 
-    // Prominent clarity guide
     ctx.fillStyle = '#f1c40f';
     ctx.font = 'bold 12px "Press Start 2P", monospace';
-    ctx.fillText('PISTA 1: TU DINO (ARRIBA)', this.vWidth / 2, this.vHeight / 2 + 25);
-
-    ctx.fillStyle = '#acacac';
-    ctx.font = '10px "Press Start 2P", monospace';
-    ctx.fillText('PISTA 2: RIVAL (ABAJO)', this.vWidth / 2, this.vHeight / 2 + 52);
+    ctx.fillText('¡PREPÁRENSE PARA CORRER!', this.vWidth / 2, this.vHeight / 2 + 25);
 
     ctx.fillStyle = '#70757a';
     ctx.font = '9px "Press Start 2P", monospace';
-    ctx.fillText('[ESPACIO / ARRIBA]: SALTAR   |   [ABAJO]: AGACHARSE', this.vWidth / 2, this.vHeight / 2 + 82);
+    ctx.fillText('[ESPACIO / ARRIBA]: SALTAR   |   [ABAJO]: AGACHARSE', this.vWidth / 2, this.vHeight / 2 + 65);
   }
 
-  private drawSpectatingOverlay(myDistance: number): void {
+  private drawSpectatingOverlay(myDistance: number, layout?: MultiTrackLayout, tracks?: TrackRenderData[]): void {
     const ctx = this.ctx;
-    // Darken ONLY Track 1 (top half) leaving Track 2 completely clear to spectate!
+    if (layout && tracks && layout.numTracks > 2) {
+      const localIdx = tracks.findIndex(t => t.isLocal);
+      const slotTop = localIdx >= 0 ? layout.topBoundaries[localIdx] : 0;
+      ctx.fillStyle = 'rgba(32, 33, 36, 0.78)';
+      ctx.fillRect(0, slotTop, this.vWidth, layout.trackHeight);
+
+      ctx.fillStyle = '#e74c3c';
+      ctx.font = 'bold 16px "Press Start 2P", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('G A M E   O V E R', this.vWidth / 2, slotTop + Math.round(layout.trackHeight * 0.35));
+
+      ctx.fillStyle = '#f1c40f';
+      ctx.font = '10px "Press Start 2P", monospace';
+      ctx.fillText(`CHOCASTE A LOS ${myDistance}m • ESPECTANDO A LOS DEMÁS`, this.vWidth / 2, slotTop + Math.round(layout.trackHeight * 0.65));
+      return;
+    }
+
+    // Default 2-track overlay (exact existing behavior)
     ctx.fillStyle = 'rgba(32, 33, 36, 0.78)';
     ctx.fillRect(0, 0, this.vWidth, 255);
 
