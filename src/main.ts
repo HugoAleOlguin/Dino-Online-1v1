@@ -57,6 +57,8 @@ class DinoApp {
       score: number;
       isDead: boolean;
     };
+    visualDistance: number;
+    visualY: number;
     isSpectating?: boolean;
   }> = new Map();
   private isSpectating: boolean = false;
@@ -69,6 +71,8 @@ class DinoApp {
     score: 0,
     isDead: false,
   };
+  private remoteVisualDistance = 0;
+  private remoteVisualY = 0;
 
   // Solo Mode
   private isSoloMode = false;
@@ -644,6 +648,8 @@ class DinoApp {
             score: 0,
             isDead: joinSpectating,
           },
+          visualDistance: 0,
+          visualY: 0,
         });
 
         if (existingPeers) {
@@ -661,6 +667,8 @@ class DinoApp {
                 score: 0,
                 isDead: false,
               },
+              visualDistance: 0,
+              visualY: 0,
             });
           }
         }
@@ -709,6 +717,8 @@ class DinoApp {
             score: 0,
             isDead: joinSpectating,
           },
+          visualDistance: 0,
+          visualY: 0,
         });
         const count = 1 + this.remotePlayers.size;
         const msg = `¡<strong style="color: ${profile.color || '#fff'}">${profile.name}</strong> se unió! (${count}/4)`;
@@ -784,11 +794,17 @@ class DinoApp {
         if (state.peerId && this.remotePlayers.has(state.peerId)) {
           const rp = this.remotePlayers.get(state.peerId)!;
           Object.assign(rp.state, state);
+          if (rp.visualDistance === 0) {
+            rp.visualDistance = state.distance;
+          }
         }
         this.remoteState = {
           ...this.remoteState,
           ...state,
         };
+        if (this.remoteVisualDistance === 0) {
+          this.remoteVisualDistance = state.distance;
+        }
       },
 
       onRemoteDied: (score, distance, peerId) => {
@@ -797,11 +813,13 @@ class DinoApp {
           rp.state.isDead = true;
           rp.state.score = score;
           rp.state.distance = Math.floor(distance);
+          rp.visualDistance = rp.state.distance;
         } else {
           this.remoteState.isDead = true;
           this.remoteState.score = score;
           this.remoteDeathDistance = Math.floor(distance);
           this.remoteState.distance = this.remoteDeathDistance;
+          this.remoteVisualDistance = this.remoteDeathDistance;
         }
 
         if (this.isAllPlayersDead()) {
@@ -874,6 +892,8 @@ class DinoApp {
         score: 0,
         isDead: false,
       };
+      this.remoteVisualDistance = 0;
+      this.remoteVisualY = 0;
       for (const rp of this.remotePlayers.values()) {
         rp.isSpectating = false;
         rp.state.y = 0;
@@ -883,6 +903,8 @@ class DinoApp {
         rp.state.distance = 0;
         rp.state.score = 0;
         rp.state.isDead = false;
+        rp.visualDistance = 0;
+        rp.visualY = 0;
       }
       for (const bot of this.bots.values()) {
         bot.resetForNewMatch();
@@ -1030,8 +1052,8 @@ class DinoApp {
         this.showError('Ingresa un código de 4 letras.');
         return;
       }
-      const hostRoom = sessionStorage.getItem('dino_host_tab');
-      if (!canJoinRoom(code, hostRoom)) {
+      const isActivelyHosting = Boolean(this.p2p && this.p2p.isHost && this.p2p.roomId === code);
+      if (isActivelyHosting) {
         this.showError('Ya eres el anfitrión de esta sala en esta pestaña.');
         return;
       }
@@ -1191,6 +1213,8 @@ class DinoApp {
         skinId: profile.skinId,
       },
       state: bot.state,
+      visualDistance: 0,
+      visualY: 0,
       isSpectating,
     });
 
@@ -1461,8 +1485,8 @@ class DinoApp {
     this.hideError();
     const cleanCode = (code || '').trim().toUpperCase();
 
-    const hostRoom = sessionStorage.getItem('dino_host_tab');
-    if (!canJoinRoom(cleanCode, hostRoom)) {
+    const isActivelyHosting = Boolean(this.p2p && this.p2p.isHost && this.p2p.roomId === cleanCode);
+    if (isActivelyHosting) {
       this.showError('Ya eres el anfitrión de esta sala en esta pestaña.');
       return;
     }
@@ -1698,6 +1722,7 @@ class DinoApp {
   }
 
   private renderSkinPreview(): void {
+    if (!this.lobbyScreen.classList.contains('active')) return;
     const ctx = this.skinPreviewCanvas.getContext('2d');
     if (!ctx) return;
 
@@ -1966,16 +1991,32 @@ class DinoApp {
         if (this.remotePlayers.size > 0) {
           let pIdx = 2;
           for (const rp of this.remotePlayers.values()) {
+            // Smooth distance progression between network packets (eliminates packet jitter/lag)
+            if (this.isMatchRunning && !rp.state.isDead) {
+              rp.visualDistance += this.localEngine.speed * dt;
+              const distErr = rp.state.distance - rp.visualDistance;
+              if (Math.abs(distErr) < 180) {
+                rp.visualDistance += distErr * Math.min(1, 14 * dt);
+              } else {
+                rp.visualDistance = rp.state.distance;
+              }
+            } else {
+              rp.visualDistance = rp.state.distance;
+            }
+
+            // Smooth vertical Y position
+            rp.visualY += (rp.state.y - rp.visualY) * Math.min(1, 30 * dt);
+
             tracks.push({
-              distance: rp.state.distance,
+              distance: rp.visualDistance,
               player: {
                 name: rp.profile.name,
                 color: rp.profile.color,
                 skinId: rp.profile.skinId || 'classic',
                 isLocal: false,
                 score: rp.state.score,
-                distance: rp.state.distance,
-                y: rp.state.y,
+                distance: rp.visualDistance,
+                y: rp.visualY,
                 isDucking: rp.state.isDucking,
                 isGrounded: rp.state.isGrounded,
                 isDead: rp.state.isDead,
@@ -1988,16 +2029,29 @@ class DinoApp {
             pIdx++;
           }
         } else if (this.remoteProfile) {
+          if (this.isMatchRunning && !this.remoteState.isDead) {
+            this.remoteVisualDistance += this.localEngine.speed * dt;
+            const distErr = this.remoteState.distance - this.remoteVisualDistance;
+            if (Math.abs(distErr) < 180) {
+              this.remoteVisualDistance += distErr * Math.min(1, 14 * dt);
+            } else {
+              this.remoteVisualDistance = this.remoteState.distance;
+            }
+          } else {
+            this.remoteVisualDistance = this.remoteState.distance;
+          }
+          this.remoteVisualY += (this.remoteState.y - this.remoteVisualY) * Math.min(1, 30 * dt);
+
           tracks.push({
-            distance: this.remoteState.distance,
+            distance: this.remoteVisualDistance,
             player: {
               name: this.remoteProfile.name,
               color: this.remoteProfile.color,
               skinId: this.remoteProfile.skinId || 'classic',
               isLocal: false,
               score: this.remoteState.score,
-              distance: this.remoteState.distance,
-              y: this.remoteState.y,
+              distance: this.remoteVisualDistance,
+              y: this.remoteVisualY,
               isDucking: this.remoteState.isDucking,
               isGrounded: this.remoteState.isGrounded,
               isDead: this.remoteState.isDead,

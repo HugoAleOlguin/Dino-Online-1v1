@@ -1,6 +1,16 @@
 import { Peer, DataConnection } from 'peerjs';
 import { formatP2PErrorMessage, MAX_PLAYERS } from '../core/lobby-helpers';
 
+export const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:stun3.l.google.com:19302' },
+  { urls: 'stun:stun4.l.google.com:19302' },
+  { urls: 'stun:stun.cloudflare.com:3478' },
+  { urls: 'stun:openrelay.metered.ca:80' },
+];
+
 export interface PlayerProfile {
   name: string;
   color: string;
@@ -133,47 +143,63 @@ export class P2PManager {
 
   /**
    * Host creates a room with an easy-to-type 4-letter alphanumeric code.
+   * Auto-retries if the code happens to collide with a stale ID on PeerJS cloud.
    */
-  async createRoom(): Promise<string> {
+  async createRoom(maxRetries: number = 3): Promise<string> {
     this.cleanup();
     this.isHost = true;
 
-    const code = Math.random().toString(36).substring(2, 6).toUpperCase();
-    const fullPeerId = `dino1v1-${code}`;
-    this.roomId = code;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const code = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const fullPeerId = `dino1v1-${code}`;
+      this.roomId = code;
 
-    return new Promise((resolve, reject) => {
-      this.peer = new Peer(fullPeerId, {
-        config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:global.stun.twilio.com:3478' },
-          ],
-        },
-      });
+      try {
+        await new Promise<string>((resolve, reject) => {
+          this.peer = new Peer(fullPeerId, {
+            config: {
+              iceServers: DEFAULT_ICE_SERVERS,
+            },
+          });
 
-      this.peer.on('open', () => {
-        resolve(code);
-      });
+          this.peer.on('open', () => {
+            resolve(code);
+          });
 
-      this.peer.on('disconnected', () => {
-        if (this.isHost && this.peer && !this.peer.destroyed) {
-          try {
-            this.peer.reconnect();
-          } catch {}
+          this.peer.on('disconnected', () => {
+            if (this.isHost && this.peer && !this.peer.destroyed) {
+              try {
+                this.peer.reconnect();
+              } catch {}
+            }
+          });
+
+          this.peer.on('error', (err: any) => {
+            if (err?.type === 'unavailable-id' && attempt < maxRetries - 1) {
+              try { this.peer?.destroy(); } catch {}
+              this.peer = null;
+              reject(err);
+              return;
+            }
+            const friendlyMsg = formatP2PErrorMessage(err);
+            this.events.onError(friendlyMsg);
+            reject(err);
+          });
+
+          this.peer.on('connection', (conn) => {
+            this.handleIncomingConnection(conn);
+          });
+        });
+
+        return code;
+      } catch (err: any) {
+        if (err?.type === 'unavailable-id' && attempt < maxRetries - 1) {
+          continue;
         }
-      });
-
-      this.peer.on('error', (err) => {
-        const friendlyMsg = formatP2PErrorMessage(err);
-        this.events.onError(friendlyMsg);
-        reject(err);
-      });
-
-      this.peer.on('connection', (conn) => {
-        this.handleIncomingConnection(conn);
-      });
-    });
+        throw err;
+      }
+    }
+    throw new Error('No se pudo crear la sala. Verifica la conexión.');
   }
 
   /**
@@ -210,7 +236,7 @@ export class P2PManager {
   }
 
   /**
-   * Guest joins an existing room by code.
+   * Guest joins an existing room by code with generous timeout and automatic retry.
    */
   async joinRoom(roomCode: string): Promise<void> {
     this.cleanup();
@@ -221,6 +247,8 @@ export class P2PManager {
     return new Promise((resolve, reject) => {
       let isSettled = false;
       let timeoutId: any = null;
+      let connectRetryCount = 0;
+      const maxConnectRetries = 3;
 
       const safeReject = (err: unknown) => {
         if (isSettled) return;
@@ -245,17 +273,15 @@ export class P2PManager {
         resolve();
       };
 
+      // 25 second timeout to guarantee NAT traversal / ICE candidate exchange completes
       timeoutId = setTimeout(() => {
         safeReject(new Error('Tiempo de espera agotado al conectar a la sala.'));
-      }, 10000);
+      }, 25000);
 
       try {
         this.peer = new Peer({
           config: {
-            iceServers: [
-              { urls: 'stun:stun.l.google.com:19302' },
-              { urls: 'stun:global.stun.twilio.com:3478' },
-            ],
+            iceServers: DEFAULT_ICE_SERVERS,
           },
         });
       } catch (err) {
@@ -263,26 +289,47 @@ export class P2PManager {
         return;
       }
 
-      this.peer.on('open', () => {
-        if (!this.peer || isSettled) return;
+      const attemptConnect = () => {
+        if (!this.peer || this.peer.destroyed || isSettled) return;
         try {
-          const conn = this.peer.connect(fullPeerId, { reliable: true });
-          conn.on('error', (err) => {
+          if (this.connection) {
+            try { this.connection.close(); } catch {}
+            this.connection = null;
+          }
+          // Note: Omitting { reliable: true } fixes connection hang on modern WebRTC
+          const conn = this.peer.connect(fullPeerId);
+          this.connection = conn;
+
+          conn.on('error', (err: any) => {
             if (!isSettled) {
+              if (err?.type === 'peer-unavailable' && connectRetryCount < maxConnectRetries) {
+                connectRetryCount++;
+                setTimeout(attemptConnect, 1200);
+                return;
+              }
               safeReject(err);
             }
           });
-          this.connection = conn;
+
           this.setupConnection(conn, () => {
             safeResolve();
           });
         } catch (err) {
           safeReject(err);
         }
+      };
+
+      this.peer.on('open', () => {
+        attemptConnect();
       });
 
-      this.peer.on('error', (err) => {
+      this.peer.on('error', (err: any) => {
         if (!isSettled) {
+          if (err?.type === 'peer-unavailable' && connectRetryCount < maxConnectRetries) {
+            connectRetryCount++;
+            setTimeout(attemptConnect, 1200);
+            return;
+          }
           safeReject(err);
         } else {
           const friendlyMsg = formatP2PErrorMessage(err);
@@ -301,12 +348,11 @@ export class P2PManager {
     }
 
     const handleOpen = () => {
-      // Send local handshake
-      try {
-        conn.send({ type: 'HANDSHAKE', profile: this.localProfile });
-      } catch {}
-
+      // Only guest initiates the handshake so onConnected is not invoked repeatedly
       if (!this.isHost) {
+        try {
+          conn.send({ type: 'HANDSHAKE', profile: this.localProfile });
+        } catch {}
         this.startPing();
       }
 
