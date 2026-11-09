@@ -8,6 +8,8 @@ import {
   getPterodactylWingFrame,
   calculateMultiTrackLayout,
   MultiTrackLayout,
+  findVisibleObstacleRange,
+  ObstacleRange,
 } from './ui-helpers';
 
 export interface PlayerVisualState {
@@ -54,12 +56,26 @@ export class DoubleTrackRenderer {
   public readonly track1GroundY = 220; // Top track ground
   public readonly track2GroundY = 470; // Bottom track ground
 
+  // High-performance zero-allocation layout cache & obstacle window structs
+  private layoutCache: Map<number, MultiTrackLayout> = new Map();
+  private renderObstacleRange: ObstacleRange = { startIndex: 0, endIndex: 0 };
+
   constructor(canvas: HTMLCanvasElement, spriteManager: SpriteManager) {
     this.canvas = canvas;
     const context = canvas.getContext('2d', { alpha: false });
     if (!context) throw new Error('Could not get 2D canvas context');
     this.ctx = context;
     this.spriteManager = spriteManager;
+  }
+
+  public getCachedLayout(numTracks: number): MultiTrackLayout {
+    const count = Math.max(1, Math.min(4, numTracks));
+    let layout = this.layoutCache.get(count);
+    if (!layout) {
+      layout = calculateMultiTrackLayout(count, this.vHeight, this.vWidth);
+      this.layoutCache.set(count, layout);
+    }
+    return layout;
   }
 
   render(
@@ -111,7 +127,7 @@ export class DoubleTrackRenderer {
 
     const isCountdown = overlay?.type === 'COUNTDOWN';
     const numTracks = Math.max(1, tracks.length);
-    const layout = calculateMultiTrackLayout(numTracks, this.vHeight, this.vWidth);
+    const layout = this.getCachedLayout(numTracks);
 
     for (let i = 0; i < tracks.length; i++) {
       const track = tracks[i];
@@ -275,8 +291,13 @@ export class DoubleTrackRenderer {
       ctx.stroke();
     }
 
-    // Obstacles
-    for (const obs of obstacles) {
+    // Obstacles: O(log N) binary search culling to visible track window
+    const minTrackX = distance - dinoScreenX - 60;
+    const maxTrackX = distance - dinoScreenX + this.vWidth + 40;
+    findVisibleObstacleRange(obstacles, minTrackX, maxTrackX, this.renderObstacleRange);
+
+    for (let i = this.renderObstacleRange.startIndex; i < this.renderObstacleRange.endIndex; i++) {
+      const obs = obstacles[i];
       const screenX = obs.x - distance + dinoScreenX;
       if (screenX < -60 || screenX > this.vWidth + 40) continue;
       this.drawObstacle(obs, screenX, groundY, scale);

@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Dino 1v1 Online — Duelo Clásico</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" href="/favicon.png">
@@ -152,8 +152,8 @@
                 </div>
               </div>
 
-              <!-- Hidden status box to preserve JS references -->
-              <div id="host-status-box" class="hidden"></div>
+              <!-- Room status banner -->
+              <div id="host-status-box" class="room-status-banner"></div>
 
               <button id="host-return-game-btn" class="classic-btn btn-secondary hidden" style="margin-top: 10px; width: 100%;">
                 VOLVER AL JUEGO
@@ -169,7 +169,7 @@
             <div id="join-room-view" class="room-panel hidden">
               <span class="panel-label">CÓDIGO DE LA SALA:</span>
               <div class="join-input-group">
-                <input type="text" id="room-code-input" maxlength="4" placeholder="EJ: AB12" autocomplete="off">
+                <input type="text" id="room-code-input" maxlength="256" placeholder="EJ: AB12" autocomplete="off">
                 <button id="join-room-confirm-btn" class="classic-btn classic-btn-primary">ENTRAR</button>
               </div>
               <button id="cancel-join-btn" class="classic-btn btn-back">VOLVER AL MENÚ</button>
@@ -219,8 +219,8 @@
                 </div>
               </div>
 
-              <!-- Hidden status box to preserve JS references -->
-              <div id="guest-status-box" class="hidden"></div>
+              <!-- Room status banner -->
+              <div id="guest-status-box" class="room-status-banner"></div>
 
               <button id="guest-ready-btn" class="classic-btn classic-btn-primary hidden" style="margin-top: 10px; width: 100%;">
                 VOLVER AL JUEGO

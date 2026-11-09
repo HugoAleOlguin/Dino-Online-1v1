@@ -1,4 +1,5 @@
 import { SpriteRect, SkinAnimationSet } from './sprites';
+import { Obstacle } from '../core/obstacles';
 
 export interface DinoBadgeParams {
   groundY: number;
@@ -216,5 +217,268 @@ export function calculateMultiTrackLayout(
     topBoundaries,
   };
 }
+
+/**
+ * Strictly sanitizes untrusted text by escaping HTML metacharacters,
+ * neutralizing XSS injection in player nicknames, chat, and dynamic DOM nodes.
+ */
+export function escapeHtml(str: string): string {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Marks all remote players in the match as dead.
+ * Used when the host or network drops mid-match to prevent soft-locking
+ * the local player in spectating mode (LOCAL_CRASHED_SPECTATING).
+ */
+export function markAllRemotePlayersDead(
+  remotePlayers: Map<string, { state: { isDead: boolean } }>
+): void {
+  for (const rp of remotePlayers.values()) {
+    rp.state.isDead = true;
+  }
+}
+
+/**
+ * Evaluates whether all participants in the match have crashed or ended their run.
+ */
+export function checkAllPlayersDead(
+  isLocalDead: boolean,
+  isLocalSpectating: boolean,
+  remotePlayers: Map<string, { state: { isDead: boolean }; isSpectating?: boolean }>,
+  fallbackRemoteState?: { isDead: boolean }
+): boolean {
+  if (!isLocalDead && !isLocalSpectating) return false;
+  if (remotePlayers.size === 0) {
+    return fallbackRemoteState ? fallbackRemoteState.isDead : true;
+  }
+  for (const rp of remotePlayers.values()) {
+    if (!rp.state.isDead && !rp.isSpectating) return false;
+  }
+  return true;
+}
+
+export interface ObstacleRange {
+  startIndex: number;
+  endIndex: number; // exclusive
+}
+
+/**
+ * Performs indexed binary search O(log N) to find the slice of obstacles
+ * overlapping the visible track horizontal window [minTrackX, maxTrackX].
+ * Supports zero-allocation by accepting an optional reusable `out` struct.
+ */
+export function findVisibleObstacleRange(
+  obstacles: Obstacle[],
+  minTrackX: number,
+  maxTrackX: number,
+  out?: ObstacleRange
+): ObstacleRange {
+  const result = out || { startIndex: 0, endIndex: 0 };
+  const len = obstacles.length;
+  if (len === 0) {
+    result.startIndex = 0;
+    result.endIndex = 0;
+    return result;
+  }
+
+  // Binary search for first obstacle whose right edge (x + width) is >= minTrackX
+  let low = 0;
+  let high = len - 1;
+  let start = len;
+
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    if (obstacles[mid].x + obstacles[mid].width >= minTrackX) {
+      start = mid;
+      high = mid - 1;
+    } else {
+      low = mid + 1;
+    }
+  }
+
+  // Binary search for first obstacle whose left edge (x) > maxTrackX
+  low = start;
+  high = len - 1;
+  let end = len;
+
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    if (obstacles[mid].x > maxTrackX) {
+      end = mid;
+      high = mid - 1;
+    } else {
+      low = mid + 1;
+    }
+  }
+
+  result.startIndex = start;
+  result.endIndex = Math.max(start, end);
+  return result;
+}
+
+export interface RemoteKinematicState {
+  y: number;
+  vy: number;
+  isDucking: boolean;
+  isGrounded: boolean;
+  distance: number;
+}
+
+/**
+ * Kinematic ballistic extrapolation (Dead-Reckoning) using authentic Chromium gravity (-2100 px/s²).
+ * Reconstructs accurate parabolic jumps between network packets, fast-falls when ducking,
+ * and maintains strictly non-decreasing distance progress to prevent backward rubberbanding.
+ */
+export function extrapolateKinematicTrajectory(
+  current: RemoteKinematicState,
+  dt: number,
+  speed: number,
+  gravity: number = -2100
+): RemoteKinematicState {
+  // Chromium offline.js fast fall multiplier: 2.8 if ducking mid-air
+  const effGravity = current.isDucking ? gravity * 2.8 : gravity;
+  let newY = current.y;
+  let newVy = current.vy;
+  let isGrounded = current.isGrounded;
+
+  if (!isGrounded || newY > 0 || newVy > 0) {
+    // Parabolic motion: y(t) = y + vy * dt + 0.5 * g * dt^2
+    newY = current.y + current.vy * dt + 0.5 * effGravity * dt * dt;
+    newVy = current.vy + effGravity * dt;
+
+    if (newY <= 0) {
+      newY = 0;
+      newVy = 0;
+      isGrounded = true;
+    } else {
+      isGrounded = false;
+    }
+  }
+
+  // Dead-reckoning distance advances forward with speed
+  const newDistance = current.distance + speed * dt;
+
+  return {
+    y: Math.max(0, newY),
+    vy: newVy,
+    isDucking: current.isDucking,
+    isGrounded,
+    distance: newDistance,
+  };
+}
+
+export interface BackgroundTickerContext {
+  isMatchRunning: boolean;
+  countdownEndTime: number | null;
+  documentHidden: boolean;
+  stepSimulation: (dt: number) => void;
+  onMatchStarted?: () => void;
+}
+
+/**
+ * Handles Web Worker background ticking to guarantee uninterrupted 60Hz physics
+ * even when the tab is hidden, ensuring automatic countdown completion and immediate match start.
+ */
+export function processBackgroundTick(
+  ctx: BackgroundTickerContext,
+  now: number,
+  dt: number = 1 / 60
+): boolean {
+  if (!ctx.documentHidden) return false;
+
+  let stateChanged = false;
+
+  // If in countdown while backgrounded
+  if (ctx.countdownEndTime !== null) {
+    if (now >= ctx.countdownEndTime) {
+      ctx.isMatchRunning = true;
+      ctx.countdownEndTime = null;
+      stateChanged = true;
+      if (ctx.onMatchStarted) {
+        ctx.onMatchStarted();
+      }
+    }
+  }
+
+  // If match is running (or just transitioned to running), step simulation
+  if (ctx.isMatchRunning) {
+    ctx.stepSimulation(dt);
+  }
+
+  return stateChanged;
+}
+
+export interface ColorSwatchItem {
+  hex: string;
+  name: string;
+  label: string;
+}
+
+export const LOBBY_COLOR_OPTIONS: ColorSwatchItem[] = [
+  { hex: '#ffffff', name: 'Blanco clásico', label: 'Color Blanco clásico' },
+  { hex: '#acacac', name: 'Gris dino', label: 'Color Gris dino' },
+  { hex: '#f1c40f', name: 'Dorado retro', label: 'Color Dorado retro' },
+  { hex: '#2ecc71', name: 'Verde clásico', label: 'Color Verde clásico' },
+  { hex: '#e74c3c', name: 'Rojo ladrillo', label: 'Color Rojo ladrillo' },
+  { hex: '#e67e22', name: 'Ámbar retro', label: 'Color Ámbar retro' },
+];
+
+/**
+ * Returns a human-friendly Spanish aria-label for a color hex code.
+ */
+export function getColorSwatchLabel(hex: string): string {
+  const match = LOBBY_COLOR_OPTIONS.find((c) => c.hex.toLowerCase() === hex.toLowerCase());
+  return match ? match.label : `Color ${hex}`;
+}
+
+/**
+ * Creates an accessible <button> element for color palette selection.
+ * Meets WCAG 2.1 AA accessibility standards with role="button", aria-label, and aria-pressed.
+ */
+export function createColorSwatchElement(
+  hex: string,
+  isSelected: boolean,
+  onClick?: () => void
+): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = `color-swatch ${isSelected ? 'active' : ''}`.trim();
+  button.style.backgroundColor = hex;
+  button.setAttribute('type', 'button');
+  button.setAttribute('aria-label', getColorSwatchLabel(hex));
+  button.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+  button.setAttribute('role', 'button');
+  if (onClick) {
+    button.addEventListener('click', onClick);
+  }
+  return button;
+}
+
+export type PingClass = 'ping-good' | 'ping-fair' | 'ping-poor';
+
+/**
+ * Classifies connection latency into semantic CSS classes:
+ * - ping < 80ms: 'ping-good'
+ * - ping < 180ms: 'ping-fair'
+ * - ping >= 180ms: 'ping-poor'
+ */
+export function getPingClass(pingMs: number): PingClass {
+  if (pingMs < 80) {
+    return 'ping-good';
+  }
+  if (pingMs < 180) {
+    return 'ping-fair';
+  }
+  return 'ping-poor';
+}
+
+
 
 

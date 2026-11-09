@@ -11,6 +11,42 @@ export const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:openrelay.metered.ca:80' },
 ];
 
+export const MAX_BUFFERED_AMOUNT = 64 * 1024; // 64KB (65536 bytes)
+export const EWMA_ALPHA = 0.2;
+
+export function applyEWMA(
+  sample: number,
+  previous: number | undefined,
+  alpha: number = EWMA_ALPHA
+): number {
+  if (previous === undefined) {
+    return sample;
+  }
+  return alpha * sample + (1 - alpha) * previous;
+}
+
+export function calculateClientCountdownDeadline(
+  countdownDurationMs: number,
+  oneWayLatencyMs: number,
+  nowMs: number = typeof performance !== 'undefined' ? performance.now() : Date.now()
+): number {
+  const adjustedDuration = Math.max(0, countdownDurationMs - oneWayLatencyMs);
+  return nowMs + adjustedDuration;
+}
+
+export interface StateMessagePayload {
+  y: number;
+  vy: number;
+  isDucking: boolean;
+  isGrounded: boolean;
+  distance: number;
+  score: number;
+  t?: number;
+  seq?: number;
+  peerId?: string;
+  type?: 'STATE';
+}
+
 export interface PlayerProfile {
   name: string;
   color: string;
@@ -36,7 +72,12 @@ export type NetMessage =
   | { type: 'PEER_JOINED'; peerId: string; profile: PlayerProfile }
   | { type: 'PEER_LEFT'; peerId: string }
   | { type: 'PROFILE_UPDATE'; profile: PlayerProfile; peerId?: string }
-  | { type: 'START_GAME'; seed: number; startTimestamp: number }
+  | {
+      type: 'START_GAME';
+      seed: number;
+      startTimestamp?: number;
+      countdownDurationMs?: number;
+    }
   | {
       type: 'STATE';
       peerId?: string;
@@ -47,6 +88,7 @@ export type NetMessage =
       distance: number;
       score: number;
       t: number;
+      seq?: number;
     }
   | { type: 'DIED'; peerId?: string; score: number; distance: number }
   | { type: 'REMATCH_REQUEST'; seed: number }
@@ -68,7 +110,7 @@ export interface P2PEvents {
   ) => void;
   onDisconnected: (peerId?: string) => void;
   onProfileUpdated?: (profile: PlayerProfile, peerId?: string) => void;
-  onStartGame: (seed: number, startTimestamp: number) => void;
+  onStartGame: (seed: number, startTimestamp: number, countdownDurationMs?: number) => void;
   onRemoteState: (state: {
     peerId?: string;
     y: number;
@@ -77,6 +119,7 @@ export interface P2PEvents {
     isGrounded: boolean;
     distance: number;
     score: number;
+    seq?: number;
   }) => void;
   onRemoteDied: (finalScore: number, distance: number, peerId?: string) => void;
   onRematchRequested: (seed: number) => void;
@@ -104,6 +147,11 @@ export class P2PManager {
   public isMatchInProgress: boolean = false;
   public currentSeed: number = 12345;
   private pingInterval: any = null;
+  private localSeq: number = 0;
+  private lastReceivedSeq: Map<string, number> = new Map();
+  public currentPingMs: number = 0;
+  public smoothedRtt: number = 0;
+  private peerRtts: Map<string, number> = new Map();
 
   constructor(localProfile: PlayerProfile, events: P2PEvents) {
     this.localProfile = localProfile;
@@ -113,6 +161,79 @@ export class P2PManager {
   setLocalProfile(profile: PlayerProfile): void {
     this.localProfile = profile;
     this.send({ type: 'PROFILE_UPDATE', profile });
+  }
+
+  getEstimatedOneWayLatency(): number {
+    return this.currentPingMs;
+  }
+
+  calculateCountdownDeadline(
+    countdownDurationMs: number,
+    now: number = typeof performance !== 'undefined' ? performance.now() : Date.now()
+  ): number {
+    return calculateClientCountdownDeadline(countdownDurationMs, this.getEstimatedOneWayLatency(), now);
+  }
+
+  safeSendState(statePayload: StateMessagePayload): boolean {
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const seq = ++this.localSeq;
+    const msg: NetMessage = {
+      type: 'STATE',
+      y: statePayload.y,
+      vy: statePayload.vy,
+      isDucking: statePayload.isDucking,
+      isGrounded: statePayload.isGrounded,
+      distance: statePayload.distance,
+      score: statePayload.score,
+      t: statePayload.t ?? now,
+      seq,
+      peerId: statePayload.peerId,
+    };
+
+    if (this.isHost) {
+      if (this.connections.size === 0 && (!this.connection || !this.connection.open)) {
+        return false;
+      }
+      let sentAny = false;
+      for (const conn of this.connections.values()) {
+        if (!conn.open) continue;
+        const dc = (conn as any).dataChannel || conn;
+        const buffered = dc.bufferedAmount ?? (conn as any).bufferedAmount ?? 0;
+        if (buffered > MAX_BUFFERED_AMOUNT) {
+          // Discard ephemeral packet to prevent bufferbloat
+          continue;
+        }
+        try {
+          conn.send(msg);
+          sentAny = true;
+        } catch {}
+      }
+      if (this.connection && this.connection.open) {
+        const dc = (this.connection as any).dataChannel || this.connection;
+        const buffered = dc.bufferedAmount ?? (this.connection as any).bufferedAmount ?? 0;
+        if (buffered <= MAX_BUFFERED_AMOUNT) {
+          try {
+            this.connection.send(msg);
+            sentAny = true;
+          } catch {}
+        }
+      }
+      return sentAny;
+    } else {
+      if (!this.connection || !this.connection.open) return false;
+      const dc = (this.connection as any).dataChannel || this.connection;
+      const buffered = dc.bufferedAmount ?? (this.connection as any).bufferedAmount ?? 0;
+      if (buffered > MAX_BUFFERED_AMOUNT) {
+        // Discard ephemeral packet due to bufferbloat backpressure
+        return false;
+      }
+      try {
+        this.connection.send(msg);
+        return true;
+      } catch {
+        return false;
+      }
+    }
   }
 
   get isConnected(): boolean {
@@ -353,6 +474,8 @@ export class P2PManager {
         try {
           conn.send({ type: 'HANDSHAKE', profile: this.localProfile });
         } catch {}
+      }
+      if (!this.pingInterval) {
         this.startPing();
       }
 
@@ -387,6 +510,12 @@ export class P2PManager {
     if (this.isHost) {
       this.connections.delete(peerKey);
       this.peerProfiles.delete(peerKey);
+      this.lastReceivedSeq.delete(peerKey);
+      this.peerRtts.delete(peerKey);
+      if (this.connections.size === 0 && this.pingInterval) {
+        clearInterval(this.pingInterval);
+        this.pingInterval = null;
+      }
       if (this.connection === conn) {
         this.connection = null;
       }
@@ -499,10 +628,20 @@ export class P2PManager {
         break;
 
       case 'START_GAME':
-        this.events.onStartGame(msg.seed, msg.startTimestamp);
+        this.events.onStartGame(msg.seed, msg.startTimestamp ?? 0, msg.countdownDurationMs);
         break;
 
-      case 'STATE':
+      case 'STATE': {
+        const senderKey = senderId || msg.peerId || 'default';
+        if (msg.seq !== undefined) {
+          const lastSeq = this.lastReceivedSeq.get(senderKey);
+          if (lastSeq !== undefined && msg.seq <= lastSeq) {
+            // Out of order packet, discard immediately!
+            return;
+          }
+          this.lastReceivedSeq.set(senderKey, msg.seq);
+        }
+
         const statePayload = {
           peerId: msg.peerId || senderId,
           y: msg.y,
@@ -511,6 +650,7 @@ export class P2PManager {
           isGrounded: msg.isGrounded,
           distance: msg.distance,
           score: msg.score,
+          seq: msg.seq,
         };
         if (this.isHost && senderId) {
           msg.peerId = senderId;
@@ -518,15 +658,18 @@ export class P2PManager {
         }
         this.events.onRemoteState(statePayload);
         break;
+      }
 
-      case 'DIED':
-        const deathPeerId = msg.peerId || senderId;
+      case 'DIED': {
+        // Anti-spoofing: Host strictly enforces deathPeerId = senderId, discarding client-provided msg.peerId
+        const deathPeerId = this.isHost ? (senderId || msg.peerId) : (msg.peerId || senderId);
         if (this.isHost && senderId) {
           msg.peerId = senderId;
           this.broadcastToOthers(senderId, msg);
         }
         this.events.onRemoteDied(msg.score, msg.distance, deathPeerId);
         break;
+      }
 
       case 'REMATCH_REQUEST':
         this.events.onRematchRequested(msg.seed);
@@ -569,6 +712,10 @@ export class P2PManager {
         break;
 
       case 'KICKED':
+        // Privilege escalation protection: Host is immune to KICKED packets
+        if (this.isHost) {
+          break;
+        }
         if (this.events.onKicked) {
           this.events.onKicked(msg.reason);
         }
@@ -577,15 +724,25 @@ export class P2PManager {
       case 'PING':
         if (fromConn) {
           fromConn.send({ type: 'PONG', t: msg.t });
+        } else if (this.connection) {
+          this.connection.send({ type: 'PONG', t: msg.t });
         } else {
           this.send({ type: 'PONG', t: msg.t });
         }
         break;
 
-      case 'PONG':
-        const rtt = Date.now() - msg.t;
-        this.events.onPingUpdated(Math.round(rtt / 2));
+      case 'PONG': {
+        const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        const sampleRtt = Math.max(0, now - msg.t);
+        const peerKey = fromConn?.peer || 'default';
+        const prevRtt = this.peerRtts.get(peerKey);
+        const smoothed = applyEWMA(sampleRtt, prevRtt, EWMA_ALPHA);
+        this.peerRtts.set(peerKey, smoothed);
+        this.smoothedRtt = smoothed;
+        this.currentPingMs = Math.round(smoothed / 2);
+        this.events.onPingUpdated(this.currentPingMs);
         break;
+      }
     }
   }
 
@@ -639,6 +796,9 @@ export class P2PManager {
   }
 
   send(msg: NetMessage): void {
+    if (msg.type === 'STATE' && msg.seq === undefined) {
+      msg.seq = ++this.localSeq;
+    }
     if (this.isHost) {
       for (const conn of this.connections.values()) {
         if (conn.open) {
@@ -657,7 +817,8 @@ export class P2PManager {
   private startPing(): void {
     if (this.pingInterval) clearInterval(this.pingInterval);
     this.pingInterval = setInterval(() => {
-      this.send({ type: 'PING', t: Date.now() });
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      this.send({ type: 'PING', t: now });
     }, 2000);
   }
 
@@ -673,6 +834,11 @@ export class P2PManager {
     }
     this.connections.clear();
     this.peerProfiles.clear();
+    this.lastReceivedSeq.clear();
+    this.peerRtts.clear();
+    this.localSeq = 0;
+    this.smoothedRtt = 0;
+    this.currentPingMs = 0;
 
     if (this.connection) {
       try {

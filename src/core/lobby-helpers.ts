@@ -184,3 +184,44 @@ export function formatSoloModalDisplay(
     showSeriesBadge: false, // In solo mode, series score badge is never shown to avoid duplication
   };
 }
+
+/**
+ * Sanitizes and extracts the 4-character room code from either:
+ * - A full URL (?room=ABCD or &room=ABCD)
+ * - A query string prefix (room=ABCD)
+ * - A direct uppercase/lowercase code with optional whitespace or dashes
+ */
+export function extractRoomCode(raw: string): string {
+  if (!raw) return '';
+  const trimmed = raw.trim();
+
+  // Try extracting parameter matching ?room=... or &room=... or room=...
+  const paramMatch =
+    trimmed.match(/[?&]room=([A-Za-z0-9]{1,10})/i) ||
+    trimmed.match(/^room=([A-Za-z0-9]{1,10})/i);
+
+  if (paramMatch && paramMatch[1]) {
+    return paramMatch[1].slice(0, 4).toUpperCase();
+  }
+
+  // If it's a URL or path with query params
+  if (trimmed.includes('://') || trimmed.includes('/?')) {
+    try {
+      const url = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`);
+      const code = url.searchParams.get('room');
+      if (code) return code.slice(0, 4).toUpperCase();
+      return '';
+    } catch {
+      return '';
+    }
+  }
+
+  // If direct URL path without protocol or room parameter
+  if (trimmed.includes('/') || trimmed.includes('.')) {
+    return '';
+  }
+
+  // Direct code input: strip non-alphanumeric and take first 4 characters
+  return trimmed.replace(/[^A-Za-z0-9]/g, '').slice(0, 4).toUpperCase();
+}
+

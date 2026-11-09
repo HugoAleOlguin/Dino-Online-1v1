@@ -8,6 +8,13 @@ import {
   sanitizeTextNoEmojis,
   getLobbyPreviewSprite,
   calculateLobbyPreviewLayout,
+  escapeHtml,
+  markAllRemotePlayersDead,
+  checkAllPlayersDead,
+  processBackgroundTick,
+  extrapolateKinematicTrajectory,
+  getPingClass,
+  createColorSwatchElement,
 } from './render/ui-helpers';
 import { SessionScoreTracker } from './core/session-score';
 import {
@@ -17,6 +24,7 @@ import {
   planDisconnectHandling,
   formatP2PErrorMessage,
   formatSoloModalDisplay,
+  extractRoomCode,
 } from './core/lobby-helpers';
 import { BotSimulator, createRandomBotProfile } from './core/bot-simulator';
 
@@ -31,6 +39,7 @@ const COLORS = [
 ];
 
 const SKIN_KEYS = Object.keys(SKINS);
+const COUNTDOWN_DURATION_MS = 5200;
 
 class DinoApp {
   private spriteManager: SpriteManager;
@@ -304,10 +313,20 @@ class DinoApp {
       );
       this.tickerWorker = new Worker(URL.createObjectURL(workerBlob));
       this.tickerWorker.onmessage = () => {
-        // Only step via worker if the tab is hidden (when requestAnimationFrame pauses)
-        if (document.hidden && this.isMatchRunning) {
-          this.stepSimulation(1 / 60);
-        }
+        processBackgroundTick(
+          {
+            isMatchRunning: this.isMatchRunning,
+            countdownEndTime: this.countdownEndTime,
+            documentHidden: document.hidden,
+            stepSimulation: (dt) => this.stepSimulation(dt),
+            onMatchStarted: () => {
+              this.isMatchRunning = true;
+              this.countdownEndTime = null;
+            },
+          },
+          performance.now(),
+          1 / 60
+        );
       };
       this.tickerWorker.postMessage('start');
     } catch (e) {
@@ -321,7 +340,7 @@ class DinoApp {
 
       if (!document.hidden) {
         // Tab gained focus: check if countdown completed while backgrounded
-        if (this.countdownEndTime !== null && Date.now() >= this.countdownEndTime) {
+        if (this.countdownEndTime !== null && performance.now() >= this.countdownEndTime) {
           this.isMatchRunning = true;
           this.countdownEndTime = null;
         }
@@ -390,14 +409,12 @@ class DinoApp {
   }
 
   private isAllPlayersDead(): boolean {
-    if (!this.localEngine.isGameOver && !this.isSpectating) return false;
-    if (this.remotePlayers.size === 0) {
-      return this.remoteState.isDead;
-    }
-    for (const rp of this.remotePlayers.values()) {
-      if (!rp.state.isDead && !rp.isSpectating) return false;
-    }
-    return true;
+    return checkAllPlayersDead(
+      this.localEngine.isGameOver,
+      this.isSpectating,
+      this.remotePlayers,
+      this.remoteState
+    );
   }
 
   private handleSoloGameOver(): void {
@@ -680,7 +697,7 @@ class DinoApp {
 
         if (this.p2p.isHost) {
           const count = 1 + this.remotePlayers.size;
-          this.hostStatusBox.innerHTML = `¡Jugador conectado: <strong style="color: ${remoteProfile.color || '#fff'}">${remoteProfile.name}</strong>! (${count}/4)`;
+          this.hostStatusBox.innerHTML = `¡Jugador conectado: <strong style="color: ${remoteProfile.color || '#fff'}">${escapeHtml(remoteProfile.name)}</strong>! (${count}/4)`;
           this.hostStartBtn.classList.remove('hidden');
           if (this.hostReturnGameBtn) this.hostReturnGameBtn.classList.add('hidden');
         } else {
@@ -721,7 +738,7 @@ class DinoApp {
           visualY: 0,
         });
         const count = 1 + this.remotePlayers.size;
-        const msg = `¡<strong style="color: ${profile.color || '#fff'}">${profile.name}</strong> se unió! (${count}/4)`;
+        const msg = `¡<strong style="color: ${profile.color || '#fff'}">${escapeHtml(profile.name)}</strong> se unió! (${count}/4)`;
         if (this.p2p.isHost) {
           this.hostStatusBox.innerHTML = msg;
         } else {
@@ -769,10 +786,14 @@ class DinoApp {
           }
           return;
         }
-        if (this.isMatchRunning && !this.localEngine.isGameOver) {
+        if (this.isMatchRunning) {
           this.remoteDisconnectedDuringMatch = true;
           this.remoteState.isDead = true;
+          markAllRemotePlayersDead(this.remotePlayers);
           this.remoteDeathDistance = Math.floor(this.remoteState.distance);
+          if (this.localEngine.isGameOver || this.isSpectating) {
+            this.evaluateMatchWinner();
+          }
           return;
         }
         this.handleRivalAbandonment();
@@ -783,11 +804,19 @@ class DinoApp {
         this.showError(reason || 'Has sido expulsado de la sala por el anfitrión.');
       },
 
-      onStartGame: (seed, startTimestamp) => {
+      onStartGame: (seed, startTimestamp, countdownDurationMs) => {
         this.hasPlayedMatchWithCurrentRival = true;
         this.remoteDisconnectedDuringMatch = false;
         this.showGameScreen();
-        this.startCountdown(seed, startTimestamp);
+        let deadline: number;
+        if (countdownDurationMs !== undefined) {
+          deadline = this.p2p.calculateCountdownDeadline(countdownDurationMs);
+        } else {
+          const oneWayLatency = this.p2p.getEstimatedOneWayLatency();
+          const remainingMs = Math.max(0, startTimestamp - Date.now() - oneWayLatency);
+          deadline = performance.now() + remainingMs;
+        }
+        this.startCountdown(seed, deadline);
       },
 
       onRemoteState: (state) => {
@@ -828,9 +857,10 @@ class DinoApp {
       },
 
       onRematchRequested: (seed) => {
-        const startTimestamp = Date.now() + 5200;
-        this.p2p.send({ type: 'START_GAME', seed, startTimestamp });
-        this.startCountdown(seed, startTimestamp);
+        const countdownDurationMs = COUNTDOWN_DURATION_MS;
+        const startTimestamp = Date.now() + countdownDurationMs;
+        this.p2p.send({ type: 'START_GAME', seed, startTimestamp, countdownDurationMs });
+        this.startCountdown(seed, performance.now() + countdownDurationMs);
       },
 
       onRematchReady: () => {
@@ -838,9 +868,10 @@ class DinoApp {
         this.updateRematchModalView();
         if (this.p2p.isHost && this.localWantsRematch) {
           const newSeed = Math.floor(Math.random() * 1000000);
-          const startTimestamp = Date.now() + 5200; // 5-second countdown!
-          this.p2p.send({ type: 'START_GAME', seed: newSeed, startTimestamp });
-          this.startCountdown(newSeed, startTimestamp);
+          const countdownDurationMs = COUNTDOWN_DURATION_MS;
+          const startTimestamp = Date.now() + countdownDurationMs;
+          this.p2p.send({ type: 'START_GAME', seed: newSeed, startTimestamp, countdownDurationMs });
+          this.startCountdown(newSeed, performance.now() + countdownDurationMs);
         }
       },
 
@@ -854,7 +885,7 @@ class DinoApp {
         this.remoteWantsRematch = false;
         this.updateRematchModalView();
         if (this.p2p.isHost) {
-          this.hostStatusBox.innerHTML = `<span class="pulsing-dot"></span> <strong style="color: ${this.remoteProfile?.color || '#fff'}">${this.remoteProfile?.name || 'Rival'}</strong> está en el lobby cambiando skin/color...`;
+          this.hostStatusBox.innerHTML = `<span class="pulsing-dot"></span> <strong style="color: ${this.remoteProfile?.color || '#fff'}">${escapeHtml(this.remoteProfile?.name || 'Rival')}</strong> está en el lobby cambiando skin/color...`;
         }
       },
 
@@ -862,12 +893,15 @@ class DinoApp {
         this.remoteInLobby = false;
         this.updateRematchModalView();
         if (this.p2p.isHost) {
-          this.hostStatusBox.innerHTML = `¡<strong style="color: ${this.remoteProfile?.color || '#fff'}">${this.remoteProfile?.name || 'Rival'}</strong> ha vuelto a la partida!`;
+          this.hostStatusBox.innerHTML = `¡<strong style="color: ${this.remoteProfile?.color || '#fff'}">${escapeHtml(this.remoteProfile?.name || 'Rival')}</strong> ha vuelto a la partida!`;
         }
       },
 
       onPingUpdated: (pingMs) => {
-        this.pingText.textContent = `PING: ${pingMs}ms`;
+        const pingClass = getPingClass(pingMs);
+        this.pingText.classList.remove('ping-good', 'ping-fair', 'ping-poor');
+        this.pingText.classList.add(pingClass);
+        this.pingText.innerHTML = `<span class="ping-dot"></span> PING: ${pingMs}ms`;
       },
 
       onError: (err) => {
@@ -944,12 +978,14 @@ class DinoApp {
     // 2. Color Palette
     this.colorPalette.innerHTML = '';
     COLORS.forEach((hex) => {
-      const swatch = document.createElement('div');
-      swatch.className = `color-swatch ${hex === this.profile.color ? 'active' : ''}`;
-      swatch.style.backgroundColor = hex;
-      swatch.addEventListener('click', () => {
-        document.querySelectorAll('.color-swatch').forEach((s) => s.classList.remove('active'));
+      const isSelected = hex === this.profile.color;
+      const swatch = createColorSwatchElement(hex, isSelected, () => {
+        this.colorPalette.querySelectorAll('.color-swatch').forEach((s) => {
+          s.classList.remove('active');
+          s.setAttribute('aria-pressed', 'false');
+        });
         swatch.classList.add('active');
+        swatch.setAttribute('aria-pressed', 'true');
         this.profile.color = hex;
         localStorage.setItem('dino_color', hex);
         this.p2p.setLocalProfile(this.profile);
@@ -1014,10 +1050,11 @@ class DinoApp {
       this.remoteDisconnectedDuringMatch = false;
       this.remoteInLobby = false;
       const seed = Math.floor(Math.random() * 1000000);
-      const startTimestamp = Date.now() + 5200; // 5-second countdown!
-      this.p2p.send({ type: 'START_GAME', seed, startTimestamp });
+      const countdownDurationMs = COUNTDOWN_DURATION_MS;
+      const startTimestamp = Date.now() + countdownDurationMs;
+      this.p2p.send({ type: 'START_GAME', seed, startTimestamp, countdownDurationMs });
       this.showGameScreen();
-      this.startCountdown(seed, startTimestamp);
+      this.startCountdown(seed, performance.now() + countdownDurationMs);
     });
 
     // 6. Panel Navigation: Show Join Room View
@@ -1045,19 +1082,40 @@ class DinoApp {
       this.fullExitToMainMenu();
     });
 
-    // 10. Confirm Join Button
-    this.joinRoomConfirmBtn.addEventListener('click', () => {
-      const code = this.roomCodeInput.value.trim().toUpperCase();
-      if (!code) {
+    // 10. Confirm Join Button & Room Code Sanitization
+    const handleJoinSubmit = () => {
+      const raw = this.roomCodeInput.value;
+      const code = extractRoomCode(raw);
+      if (!code || code.length < 4) {
         this.showError('Ingresa un código de 4 letras.');
         return;
       }
+      this.roomCodeInput.value = code;
       const isActivelyHosting = Boolean(this.p2p && this.p2p.isHost && this.p2p.roomId === code);
       if (isActivelyHosting) {
         this.showError('Ya eres el anfitrión de esta sala en esta pestaña.');
         return;
       }
       this.joinRoom(code);
+    };
+
+    this.joinRoomConfirmBtn.addEventListener('click', handleJoinSubmit);
+
+    this.roomCodeInput.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleJoinSubmit();
+      }
+    });
+
+    this.roomCodeInput.addEventListener('input', () => {
+      const raw = this.roomCodeInput.value;
+      if (raw.includes('room=') || raw.includes('://')) {
+        const extracted = extractRoomCode(raw);
+        if (extracted) {
+          this.roomCodeInput.value = extracted;
+        }
+      }
     });
 
     // 11. Solo Mode: Play Solo
@@ -1072,7 +1130,7 @@ class DinoApp {
 
       const seed = Math.floor(Math.random() * 1000000);
       this.showGameScreen();
-      this.startCountdown(seed, Date.now() + 5200); // 5-second countdown!
+      this.startCountdown(seed, performance.now() + COUNTDOWN_DURATION_MS);
     });
 
     // 12. Copy Code Button
@@ -1154,7 +1212,7 @@ class DinoApp {
         this.isSoloMode = true;
         const seed = Math.floor(Math.random() * 1000000);
         this.showGameScreen();
-        this.startCountdown(seed, Date.now() + 5200);
+        this.startCountdown(seed, performance.now() + COUNTDOWN_DURATION_MS);
       });
     }
 
@@ -1225,7 +1283,7 @@ class DinoApp {
 
     if (this.p2p.isHost) {
       this.hostStartBtn.classList.remove('hidden');
-      this.hostStatusBox.innerHTML = `¡Bot conectado: <strong style="color: ${profile.color}">${profile.name}</strong>! (${1 + this.remotePlayers.size}/4)`;
+      this.hostStatusBox.innerHTML = `¡Bot conectado: <strong style="color: ${profile.color}">${escapeHtml(profile.name)}</strong>! (${1 + this.remotePlayers.size}/4)`;
     }
 
     const modeText = isSpectating ? ' (Modo Espectador)' : '';
@@ -1321,7 +1379,7 @@ class DinoApp {
     if (this.isSoloMode) {
       this.resultModal.classList.add('hidden');
       const seed = Math.floor(Math.random() * 1000000);
-      this.startCountdown(seed, Date.now() + 5200);
+      this.startCountdown(seed, performance.now() + COUNTDOWN_DURATION_MS);
       return;
     }
 
@@ -1341,9 +1399,10 @@ class DinoApp {
 
     if (this.remoteWantsRematch && this.p2p.isHost) {
       const newSeed = Math.floor(Math.random() * 1000000);
-      const startTimestamp = Date.now() + 5200; // 5-second countdown!
-      this.p2p.send({ type: 'START_GAME', seed: newSeed, startTimestamp });
-      this.startCountdown(newSeed, startTimestamp);
+      const countdownDurationMs = COUNTDOWN_DURATION_MS;
+      const startTimestamp = Date.now() + countdownDurationMs;
+      this.p2p.send({ type: 'START_GAME', seed: newSeed, startTimestamp, countdownDurationMs });
+      this.startCountdown(newSeed, performance.now() + countdownDurationMs);
     }
   }
 
@@ -1399,7 +1458,7 @@ class DinoApp {
             this.hostReturnGameBtn.classList.add('hidden');
           }
         }
-        const rivalName = this.remoteProfile?.name || 'Rival';
+        const rivalName = escapeHtml(this.remoteProfile?.name || 'Rival');
         const rivalColor = this.remoteProfile?.color || '#fff';
         if (this.hasPlayedMatchWithCurrentRival) {
           this.hostStatusBox.innerHTML = `En sala con <strong style="color: ${rivalColor}">${rivalName}</strong>. Cambia tu skin o color y pulsa VOLVER AL JUEGO para dar revancha.`;
@@ -1417,7 +1476,7 @@ class DinoApp {
       this.hostRoomView.classList.add('hidden');
       this.guestRoomView.classList.remove('hidden');
       this.guestReadyBtn.classList.remove('hidden');
-      const rivalName = this.remoteProfile?.name || 'Host';
+      const rivalName = escapeHtml(this.remoteProfile?.name || 'Host');
       const rivalColor = this.remoteProfile?.color || '#fff';
       this.guestStatusBox.innerHTML = `En sala con <strong style="color: ${rivalColor}">${rivalName}</strong>. Cambia tu skin o color y pulsa VOLVER AL JUEGO cuando termines.`;
     }
@@ -1634,7 +1693,7 @@ class DinoApp {
               <span class="role-badge guest-role">JUGADOR ${i + 2}</span>
               <span class="status-pill">CONECTADO</span>
             </div>
-            <span class="card-player-name" style="color: ${p.profile.color || '#fff'}">${p.profile.name}</span>
+            <span class="card-player-name" style="color: ${p.profile.color || '#fff'}">${escapeHtml(p.profile.name)}</span>
             <span class="card-player-skin">${SKINS[p.profile.skinId]?.name || 'T-Rex Clásico'}</span>
           </div>
           <button class="kick-btn" title="Expulsar">
@@ -1687,7 +1746,7 @@ class DinoApp {
               <span class="role-badge guest-role">JUGADOR</span>
               <span class="status-pill">CONECTADO</span>
             </div>
-            <span class="card-player-name" style="color: ${p.profile.color || '#fff'}">${p.profile.name}</span>
+            <span class="card-player-name" style="color: ${p.profile.color || '#fff'}">${escapeHtml(p.profile.name)}</span>
             <span class="card-player-skin">${SKINS[p.profile.skinId]?.name || 'T-Rex Clásico'}</span>
           </div>
         `;
@@ -1847,27 +1906,53 @@ class DinoApp {
       }
     });
 
-    // Touch Controls
+    // Touch Controls with Haptic Feedback & Visual Pressed States
+    const triggerHaptic = () => {
+      try {
+        if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+          navigator.vibrate(12);
+        }
+      } catch {}
+    };
+
     this.touchJumpBtn.addEventListener('touchstart', (e) => {
       e.preventDefault();
+      this.touchJumpBtn.classList.add('touch-pressed');
+      triggerHaptic();
       this.localEngine.handleInput(DinoAction.JUMP);
       this.sendStateNow();
     });
 
     this.touchJumpBtn.addEventListener('touchend', (e) => {
       e.preventDefault();
+      this.touchJumpBtn.classList.remove('touch-pressed');
+      this.localEngine.handleInput(DinoAction.JUMP_END);
+      this.sendStateNow();
+    });
+
+    this.touchJumpBtn.addEventListener('touchcancel', () => {
+      this.touchJumpBtn.classList.remove('touch-pressed');
       this.localEngine.handleInput(DinoAction.JUMP_END);
       this.sendStateNow();
     });
 
     this.touchDuckBtn.addEventListener('touchstart', (e) => {
       e.preventDefault();
+      this.touchDuckBtn.classList.add('touch-pressed');
+      triggerHaptic();
       this.localEngine.handleInput(DinoAction.DUCK_START);
       this.sendStateNow();
     });
 
     this.touchDuckBtn.addEventListener('touchend', (e) => {
       e.preventDefault();
+      this.touchDuckBtn.classList.remove('touch-pressed');
+      this.localEngine.handleInput(DinoAction.DUCK_END);
+      this.sendStateNow();
+    });
+
+    this.touchDuckBtn.addEventListener('touchcancel', () => {
+      this.touchDuckBtn.classList.remove('touch-pressed');
       this.localEngine.handleInput(DinoAction.DUCK_END);
       this.sendStateNow();
     });
@@ -1875,6 +1960,7 @@ class DinoApp {
     const canvas = document.getElementById('game-canvas')!;
     canvas.addEventListener('touchstart', (e) => {
       e.preventDefault();
+      triggerHaptic();
       this.localEngine.handleInput(DinoAction.JUMP);
       this.sendStateNow();
     });
@@ -1888,15 +1974,13 @@ class DinoApp {
 
   private sendStateNow(): void {
     if (!this.isMatchRunning || this.isSoloMode) return;
-    this.p2p.send({
-      type: 'STATE',
+    this.p2p.safeSendState({
       y: this.localEngine.dino.y,
       vy: this.localEngine.dino.vy,
       isDucking: this.localEngine.dino.isDucking,
       isGrounded: this.localEngine.dino.isGrounded,
       distance: this.localEngine.distance,
       score: this.localEngine.score,
-      t: Date.now(),
     });
     this.lastNetworkSendTime = Date.now();
   }
@@ -1934,7 +2018,7 @@ class DinoApp {
 
       // 5-Second Countdown (5, 4, 3, 2, 1, ¡YA!)
       if (this.countdownEndTime !== null) {
-        const remainingMs = this.countdownEndTime - Date.now();
+        const remainingMs = this.countdownEndTime - performance.now();
         if (remainingMs > 4000) {
           countdownText = '5';
         } else if (remainingMs > 3000) {
@@ -1962,14 +2046,23 @@ class DinoApp {
         }
       }
 
+      // Temporal visual interpolation (144Hz/120Hz micro-smoothing)
+      const alpha = this.FIXED_DELTA > 0 ? this.physicsAccumulator / this.FIXED_DELTA : 0;
+      const interpDistance = this.isMatchRunning
+        ? this.localEngine.getInterpolatedDistance(alpha)
+        : this.localEngine.distance;
+      const interpY = this.isMatchRunning
+        ? this.localEngine.getInterpolatedY(alpha)
+        : this.localEngine.dino.y;
+
       const localVisual: PlayerVisualState = {
         name: this.profile.name,
         color: this.profile.color,
         skinId: this.profile.skinId,
         isLocal: true,
         score: this.localEngine.score,
-        distance: this.localEngine.distance,
-        y: this.localEngine.dino.y,
+        distance: interpDistance,
+        y: interpY,
         isDucking: this.localEngine.dino.isDucking,
         isGrounded: this.localEngine.dino.isGrounded,
         isDead: this.localEngine.isGameOver,
@@ -1977,7 +2070,7 @@ class DinoApp {
 
       const tracks: TrackRenderData[] = [
         {
-          distance: this.localEngine.distance,
+          distance: interpDistance,
           player: localVisual,
           obstacles: this.localEngine.obstacles,
           label: 'TU PISTA (P1)',
@@ -1991,21 +2084,35 @@ class DinoApp {
         if (this.remotePlayers.size > 0) {
           let pIdx = 2;
           for (const rp of this.remotePlayers.values()) {
-            // Smooth distance progression between network packets (eliminates packet jitter/lag)
             if (this.isMatchRunning && !rp.state.isDead) {
-              rp.visualDistance += this.localEngine.speed * dt;
+              const currentSpeed = this.localEngine.speed;
+              const extrapolated = extrapolateKinematicTrajectory(
+                {
+                  y: rp.visualY,
+                  vy: rp.state.vy,
+                  isDucking: rp.state.isDucking,
+                  isGrounded: rp.state.isGrounded,
+                  distance: rp.visualDistance,
+                },
+                dt,
+                currentSpeed,
+                -2100
+              );
+              rp.visualY = extrapolated.y;
+
               const distErr = rp.state.distance - rp.visualDistance;
-              if (Math.abs(distErr) < 180) {
-                rp.visualDistance += distErr * Math.min(1, 14 * dt);
-              } else {
+              if (distErr > 0 && distErr < 180) {
+                rp.visualDistance = Math.max(rp.visualDistance, extrapolated.distance + distErr * Math.min(1, 14 * dt));
+              } else if (distErr >= 180) {
                 rp.visualDistance = rp.state.distance;
+              } else {
+                // Ensure strictly non-decreasing distance to eliminate backward rubberbanding (lag-tug)
+                rp.visualDistance = Math.max(rp.visualDistance, extrapolated.distance);
               }
             } else {
               rp.visualDistance = rp.state.distance;
+              rp.visualY = rp.state.y;
             }
-
-            // Smooth vertical Y position
-            rp.visualY += (rp.state.y - rp.visualY) * Math.min(1, 30 * dt);
 
             tracks.push({
               distance: rp.visualDistance,
@@ -2030,17 +2137,33 @@ class DinoApp {
           }
         } else if (this.remoteProfile) {
           if (this.isMatchRunning && !this.remoteState.isDead) {
-            this.remoteVisualDistance += this.localEngine.speed * dt;
+            const currentSpeed = this.localEngine.speed;
+            const extrapolated = extrapolateKinematicTrajectory(
+              {
+                y: this.remoteVisualY,
+                vy: this.remoteState.vy,
+                isDucking: this.remoteState.isDucking,
+                isGrounded: this.remoteState.isGrounded,
+                distance: this.remoteVisualDistance,
+              },
+              dt,
+              currentSpeed,
+              -2100
+            );
+            this.remoteVisualY = extrapolated.y;
+
             const distErr = this.remoteState.distance - this.remoteVisualDistance;
-            if (Math.abs(distErr) < 180) {
-              this.remoteVisualDistance += distErr * Math.min(1, 14 * dt);
-            } else {
+            if (distErr > 0 && distErr < 180) {
+              this.remoteVisualDistance = Math.max(this.remoteVisualDistance, extrapolated.distance + distErr * Math.min(1, 14 * dt));
+            } else if (distErr >= 180) {
               this.remoteVisualDistance = this.remoteState.distance;
+            } else {
+              this.remoteVisualDistance = Math.max(this.remoteVisualDistance, extrapolated.distance);
             }
           } else {
             this.remoteVisualDistance = this.remoteState.distance;
+            this.remoteVisualY = this.remoteState.y;
           }
-          this.remoteVisualY += (this.remoteState.y - this.remoteVisualY) * Math.min(1, 30 * dt);
 
           tracks.push({
             distance: this.remoteVisualDistance,

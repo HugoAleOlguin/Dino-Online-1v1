@@ -3,47 +3,53 @@
 ## 1. Estado Actual del Sistema
 - **Modo Multijugador Expandido (Hasta 4 Jugadores):**
   - Soporte dinámico para 1, 2, 3 y 4 jugadores simultáneos en pistas horizontales paralelas apiladas.
-  - Límite estricto de sala: `MAX_PLAYERS = 4`. Si un quinto jugador intenta unirse por enlace o código, el Host rechaza la conexión con el mensaje literal:
-    `"La sala está llena. Ya se ha alcanzado el límite máximo de 4 jugadores."`
-- **Protección de Techo y Física de Salto:**
-  - El dinosaurio de Chromium salta a una velocidad de $720\text{ px/s}$ con gravedad de $-2100\text{ px/s}^2$, alcanzando un ápice de $\approx 123.4\text{ px}$ más su altura de cuerpo ($47\text{ px}$ en carrera), sumando $\approx 171\text{ px}$ de espacio vertical necesario.
-  - Para evitar que atraviese el techo al dividir la pantalla entre 3 o 4 pistas, se implementó el factor de escala visual uniforme dinámico en `calculateMultiTrackLayout()`:
-    - 1 o 2 pistas: escala $1.0\times$.
-    - 3 pistas: escala $0.72\times$ (margen libre superior $\approx 22\text{ px}$).
-    - 4 pistas: escala $0.58\times$ (margen libre superior $\approx 28\text{ px}$).
-  - Garantía verificada por tests: el dino nunca toca ni perfora el divisor horizontal en la cúspide de su salto.
-- **Flujo de Espectador y Transición a Siguiente Ronda:**
-  - Si un 3º o 4º jugador se une mientras una carrera está en curso (`isMatchInProgress`), ingresa al lobby para personalizar su skin y color, y puede visualizar la partida en curso en vivo con el overlay `'ESPECTANDO PARTIDA EN CURSO'`.
-  - El espectador no bloquea la detección de finalización de carrera (`isAllPlayersDead`).
-  - Al terminar la carrera y comenzar la siguiente ronda mediante revancha o nuevo inicio, el espectador pasa automáticamente a corredor activo con su dino vivo.
-- **Sistema de Debug y Bots Autónomos (`Tecla B` o `/debug`):**
-  - Panel interactivo de depuración que permite:
-    - `+ Añadir 1 Bot`: Añade un bot con IA reactiva que salta y se agacha ante obstáculos reales de la pista.
-    - `Llenar Sala (4/4)`: Completa los 4 slots instantáneamente para probar las 4 pantallas y la escala $0.58\times$ en vivo.
-    - `Unir Bot en Modo Espectador`: Simula un jugador uniéndose a mitad de partida.
-    - `Simular Intento de Entrada (Sala Llena)`: Dispara la verificación de rechazo del 5º jugador con el mensaje oficial.
-    - `Limpiar / Expulsar Bots`: Resetea la sala al estado normal.
-- **Corrección de Récord Duplicado en Modo Solitario:**
-  - Se eliminó la doble impresión del récord en el modal de fin de partida. En solitario se oculta el badge de serie y se muestra únicamente una línea limpia de distancia y estatus (`¡NUEVO RECORD PERSONAL!` o `RECORD: X METROS`).
+  - Límite estricto de sala: `MAX_PLAYERS = 4` con rechazo inmediato para el 5º jugador (`ROOM_FULL`).
+- **Seguridad y Blindaje Anti-Exploits (Ticket 1):**
+  - Sanitización XSS estricta mediante `escapeHtml()` en todos los apodos y textos inyectados en el DOM (`innerHTML`).
+  - Blindaje anti-suplantación en paquetes `DIED`: el Host ignora `msg.peerId` entrante y fuerza `deathPeerId = senderId`.
+  - Inmunidad del anfitrión ante paquetes `KICKED` (anti-escalada de privilegios).
+  - Eliminación de soft-lock al caer el Host: `markAllRemotePlayersDead()` garantiza que el jugador local continúe su carrera y obtenga su pantalla de fin de partida.
+- **Sincronización WebRTC y Red Robusta (Ticket 2):**
+  - Secuenciación monotónica `seq` con descarte de paquetes fuera de orden (`seq <= lastSeq`), erradicando el *rubberbanding* hacia atrás.
+  - Cuenta regresiva relativa (`countdownDurationMs = 5200`) desacoplada del reloj del sistema operativo (`performance.now()`) con compensación de latencia unidireccional ($RTT/2$).
+  - Backpressure control con `safeSendState()`: descarte de paquetes efímeros si `bufferedAmount > 64KB` en el RTCDataChannel.
+  - Medición de ping y RTT bidireccional en el anfitrión con suavizado EWMA ($\alpha = 0.2$).
+- **Motor Canvas 2D de Alta Fluidez (Ticket 3):**
+  - Factor $\alpha$ de interpolación temporal (`alpha = physicsAccumulator / FIXED_DELTA`) eliminando el judder y micro-stutter en monitores gaming de 120Hz/144Hz/240Hz.
+  - Extrapolación cinemática balística del rival con gravedad Chromium ($-2100\text{ px/s}^2$) y *fast-fall* ($\times 2.8$).
+  - Arquitectura *zero-allocation* con pre-cálculo y caché de layout multi-pista en `DoubleTrackRenderer`.
+  - Culling indexado $O(\log N)$ con búsqueda binaria de obstáculos en pantalla en el bucle de render y en la fase amplia de colisiones.
+  - Sincronización continua del Web Worker ticker (`processBackgroundTick`) cuando la pestaña está en segundo plano durante la cuenta regresiva.
+- **Ergonomía Móvil y Accesibilidad WCAG (Ticket 4):**
+  - Cajas de estado del lobby (`#host-status-box`, `#guest-status-box`) visibles con `.room-status-banner` y dot pulsante.
+  - Safe areas móviles con `viewport-fit=cover` y `env(safe-area-inset-*)` en controles táctiles.
+  - Extracción y saneamiento automático de códigos (`extractRoomCode`) si se pega una URL completa (`?room=ABCD`), y soporte para tecla `Enter`.
+  - Swatches de paleta de colores convertidos a `<button>` con atributos `aria-pressed`, `aria-label` descriptivos y dimensiones táctiles de mínimo 44x44px.
+  - Clases semánticas dinámicas para latencia (`.ping-good`, `.ping-fair`, `.ping-poor`) con micro-indicador `.ping-dot`.
+  - Soporte para orientación horizontal móvil (landscape) sin desbordes ni scroll accidental.
+  - Micro-vibración háptica `navigator.vibrate?.(12)` en controles táctiles.
 
 ---
 
 ## 2. Decisiones Arquitectónicas Clave (ADRs)
 1. **Layout Dinámico por Track Height vs Canvas Extendido:**
-   - Se mantiene el canvas virtual en $960 \times 540\text{ px}$ y se dividen proporcionalmente las pistas aplicando un factor de escala uniforme a dinos, obstáculos, suelo y nubes.
+   - Canvas virtual en $960 \times 540\text{ px}$ con división proporcional y factor de escala dinámico ($1.0\times$, $0.72\times$, $0.58\times$) con margen garantizado contra techos.
 2. **Rechazo Inmediato P2P para Sala Llena:**
-   - El Host valida `connections.size >= MAX_PLAYERS - 1` en el evento `peer.on('connection')`. Si la sala está llena, envía un paquete `{ type: 'ROOM_FULL', message: '...' }` y cierra la conexión tras una ráfaga corta (150ms).
-3. **BotSimulator como Virtual Peer Local:**
-   - Los bots ejecutan la misma física de `Dino` y detección multi-box que los jugadores reales, sin requerir sockets WebRTC ni backend, permitiendo tests integrales con 4 pistas desde una sola pestaña.
+   - Host valida `connections.size >= MAX_PLAYERS - 1` en el evento `peer.on('connection')`.
+3. **Desacoplamiento Temporal para Frecuencias Altas:**
+   - Físicas fijas deterministas a 60Hz combinadas con interpolación $\alpha$ para tasa de refresco arbitraria en el bucle `requestAnimationFrame`.
+4. **Sincronización de Salida por Offset de RTT:**
+   - Sustitución de `Date.now()` absoluto por duración relativa transmitida y descuento de un viaje de ida ($RTT/2$).
+5. **Backpressure Preventivo:**
+   - Descarte local de paquetes efímeros de alta frecuencia (30Hz) si el socket WebRTC está congestionado.
 
 ---
 
 ## 3. Pruebas y Cobertura (TDD)
-- **Suites de Pruebas:** 14 suites con **61 tests pasando al 100%** en Vitest.
-  - `tests/solo-modal.test.ts`: Validación de no-duplicación de récord en modo solo.
-  - `tests/bot-simulator.test.ts`: Físicas de salto, IA reactiva y ciclo de vida de bots.
-  - `tests/multi-track-layout.test.ts`: Layout, escalas y headroom de techo.
-  - `tests/lobby-full.test.ts`: Límite de 4 jugadores y mensajes de error.
-  - `tests/p2p-multiplayer.test.ts`: Retransmisión de paquetes y topología en estrella.
-  - `tests/jump-physics.test.ts`, `tests/hitboxes.test.ts`, `tests/core.test.ts`, etc.
+- **Suites de Pruebas:** 18 suites con **118 tests pasando al 100%** en Vitest.
+  - `tests/security-resilience.test.ts` (11 tests): Saneamiento XSS, protección contra suplantación en `DIED`, inmunidad de Host y prevención de soft-locks.
+  - `tests/p2p-sync.test.ts` (18 tests): Secuenciación de paquetes, descarte fuera de orden, countdown relativo, backpressure y ping EWMA.
+  - `tests/fluidity-interpolation.test.ts` (16 tests): Interpolación $\alpha$, balística parabólica, culling $O(\log N)$ y sincronización de Web Worker.
+  - `tests/ux-accessibility.test.ts` (12 tests): Banners de estado, safe areas, parsing de URLs, swatches accesibles y clases de ping.
+  - Suites existentes (61 tests): `tests/solo-modal.test.ts`, `tests/bot-simulator.test.ts`, `tests/multi-track-layout.test.ts`, etc.
 - **Build de Producción:** Vite + TypeScript compilan con **0 errores**.
