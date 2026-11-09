@@ -75,13 +75,13 @@ describe('In-game UI Helpers & Nick Badge', () => {
 
   it('formats match comparison with clear metrics and no emojis', () => {
     const victoryComparison = formatMatchComparison(540, 320, 'Rival');
-    expect(victoryComparison.diffText).toBe('+220 METROS DE VENTAJA');
-    expect(victoryComparison.detailText).toBe('TÚ: 540 m   vs   Rival: 320 m');
+    expect(victoryComparison.diffText).toBe('+220 PUNTOS DE VENTAJA');
+    expect(victoryComparison.detailText).toBe('TÚ: 540 pts   vs   Rival: 320 pts');
     expect(victoryComparison.diffText).not.toMatch(/[\uD83C-\uDBFF\uDC00-\uDFFF\u2600-\u27BF]/);
 
     const defeatComparison = formatMatchComparison(320, 540, 'Bot');
-    expect(defeatComparison.diffText).toBe('-220 METROS DE DIFERENCIA');
-    expect(defeatComparison.detailText).toBe('TÚ: 320 m   vs   Bot: 540 m');
+    expect(defeatComparison.diffText).toBe('-220 PUNTOS DE DIFERENCIA');
+    expect(defeatComparison.detailText).toBe('TÚ: 320 pts   vs   Bot: 540 pts');
   });
 
   it('renders authentic 1:1 ducking animation frames without scaling or squashing the dinosaur', () => {

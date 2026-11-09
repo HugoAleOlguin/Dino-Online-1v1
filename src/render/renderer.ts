@@ -257,7 +257,7 @@ export class DoubleTrackRenderer {
     ctx.font = `bold ${scoreFontSize}px "Press Start 2P", monospace`;
     ctx.fillStyle = '#acacac';
     const scoreStr = Math.floor(distance / 10).toString().padStart(5, '0');
-    ctx.fillText(`${scoreStr} m`, this.vWidth - 30, headerY + 1);
+    ctx.fillText(`${scoreStr} PTS`, this.vWidth - 30, headerY + 1);
 
     // Drifting authentic clouds in the sky
     if (spriteImg) {
@@ -498,7 +498,7 @@ export class DoubleTrackRenderer {
 
     ctx.fillStyle = '#ffffff';
     ctx.font = '12px "Press Start 2P", monospace';
-    ctx.fillText(`CHOCASTE A LOS ${myDistance} METROS`, this.vWidth / 2, 105);
+    ctx.fillText(`CHOCASTE CON ${myDistance} PUNTOS`, this.vWidth / 2, 105);
 
     ctx.fillStyle = '#f1c40f';
     ctx.font = '10px "Press Start 2P", monospace';
@@ -534,11 +534,11 @@ export class DoubleTrackRenderer {
 
     ctx.font = '11px "Press Start 2P", monospace';
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(`TÚ: ${myDistance} m   vs   ${rivalName}: ${rivalDistance} m`, this.vWidth / 2, this.vHeight / 2 + 25);
+    ctx.fillText(`TÚ: ${myDistance} pts   vs   ${rivalName}: ${rivalDistance} pts`, this.vWidth / 2, this.vHeight / 2 + 25);
 
     const diff = myDistance - rivalDistance;
     ctx.fillStyle = '#2ecc71';
-    ctx.fillText(`+${diff} METROS DE VENTAJA`, this.vWidth / 2, this.vHeight / 2 + 45);
+    ctx.fillText(`+${diff} PUNTOS DE VENTAJA`, this.vWidth / 2, this.vHeight / 2 + 45);
 
     // Rematch call to action
     ctx.fillStyle = '#acacac';
@@ -571,11 +571,11 @@ export class DoubleTrackRenderer {
 
     ctx.font = '11px "Press Start 2P", monospace';
     ctx.fillStyle = '#acacac';
-    ctx.fillText(`TÚ: ${myDistance} m   vs   ${rivalName}: ${rivalDistance} m`, this.vWidth / 2, this.vHeight / 2 + 25);
+    ctx.fillText(`TÚ: ${myDistance} pts   vs   ${rivalName}: ${rivalDistance} pts`, this.vWidth / 2, this.vHeight / 2 + 25);
 
     const diff = rivalDistance - myDistance;
     ctx.fillStyle = '#e74c3c';
-    ctx.fillText(`-${diff} METROS DE DIFERENCIA`, this.vWidth / 2, this.vHeight / 2 + 45);
+    ctx.fillText(`-${diff} PUNTOS DE DIFERENCIA`, this.vWidth / 2, this.vHeight / 2 + 45);
 
     ctx.fillStyle = '#70757a';
     ctx.font = '11px "Press Start 2P", monospace';
@@ -595,7 +595,7 @@ export class DoubleTrackRenderer {
 
     ctx.fillStyle = '#ffffff';
     ctx.font = '14px "Press Start 2P", monospace';
-    ctx.fillText(`AMBOS CHOCARON A LOS ${distance} METROS`, this.vWidth / 2, this.vHeight / 2 + 10);
+    ctx.fillText(`AMBOS EMPATARON CON ${distance} PUNTOS`, this.vWidth / 2, this.vHeight / 2 + 10);
 
     ctx.fillStyle = '#70757a';
     ctx.font = '11px "Press Start 2P", monospace';
@@ -615,12 +615,12 @@ export class DoubleTrackRenderer {
 
     ctx.fillStyle = '#ffffff';
     ctx.font = '14px "Press Start 2P", monospace';
-    ctx.fillText(`DISTANCIA: ${distance} METROS`, this.vWidth / 2, this.vHeight / 2 - 20);
+    ctx.fillText(`PUNTAJE: ${distance} PTS`, this.vWidth / 2, this.vHeight / 2 - 20);
 
     if (highScore > 0) {
       ctx.fillStyle = distance >= highScore ? '#f1c40f' : '#acacac';
       ctx.font = '11px "Press Start 2P", monospace';
-      const recordLabel = distance >= highScore ? '¡NUEVO RECORD PERSONAL!' : `RECORD: ${highScore} METROS`;
+      const recordLabel = distance >= highScore ? '¡NUEVO RÉCORD!' : `RÉCORD: ${highScore} PTS`;
       ctx.fillText(recordLabel, this.vWidth / 2, this.vHeight / 2 + 15);
     }
 

@@ -96,7 +96,18 @@ class DinoApp {
 
   // Solo Mode
   private isSoloMode = false;
-  private soloHighScore: number = parseInt(localStorage.getItem('dino_solo_highscore') || '0', 10);
+  private soloHighScore: number = (() => {
+    const raw = localStorage.getItem('dino_solo_highscore');
+    if (!raw) return 0;
+    const val = parseInt(raw, 10);
+    if (!localStorage.getItem('dino_highscore_is_points') && val > 0) {
+      const migrated = Math.floor(val / 10);
+      localStorage.setItem('dino_solo_highscore', migrated.toString());
+      localStorage.setItem('dino_highscore_is_points', 'true');
+      return migrated;
+    }
+    return isNaN(val) ? 0 : val;
+  })();
 
   // Daily Challenge Mode
   private isDailyMode = false;
@@ -380,7 +391,7 @@ class DinoApp {
         // Local gets Game Over & spectator mode. Rivals continue playing!
         this.matchOverlay = {
           type: 'LOCAL_CRASHED_SPECTATING',
-          myDistance: this.localDeathDistance,
+          myDistance: this.localEngine.score,
         };
       }
     };
@@ -462,15 +473,16 @@ class DinoApp {
     }
 
     const prevHighScore = this.soloHighScore;
-    const isNewRecord = myDist > prevHighScore;
+    const isNewRecord = currentScore > prevHighScore;
     if (isNewRecord) {
-      this.soloHighScore = myDist;
+      this.soloHighScore = currentScore;
       localStorage.setItem('dino_solo_highscore', this.soloHighScore.toString());
+      localStorage.setItem('dino_highscore_is_points', 'true');
     }
 
     this.matchOverlay = {
       type: 'SOLO_GAME_OVER',
-      distance: myDist,
+      distance: currentScore,
       highScore: this.soloHighScore,
     };
 
@@ -479,11 +491,11 @@ class DinoApp {
     this.modalResultSub.textContent = 'MODO LIBRE';
     this.modalResultIcon.src = '/icons/close.svg';
 
-    const soloDisplay = formatSoloModalDisplay(myDist, prevHighScore);
+    const soloDisplay = formatSoloModalDisplay(currentScore, prevHighScore);
     this.modalScoresLine.textContent = soloDisplay.distanceText;
     this.modalDiffBadge.textContent = soloDisplay.statusText;
 
-    if (isNewRecord && myDist > 0) {
+    if (isNewRecord && currentScore > 0) {
       this.modalDiffBadge.style.color = '#f1c40f';
     } else {
       this.modalDiffBadge.style.color = '#acacac';
@@ -514,12 +526,14 @@ class DinoApp {
     }
 
     const myDist = this.localDeathDistance || 0;
+    const myScore = this.localEngine.score;
 
     // Collect all players results
-    const results: Array<{ name: string; color: string; distance: number; isLocal: boolean }> = [
+    const results: Array<{ name: string; color: string; score: number; distance: number; isLocal: boolean }> = [
       {
         name: sanitizeTextNoEmojis(this.profile.name) || 'Tú',
         color: this.profile.color,
+        score: myScore,
         distance: myDist,
         isLocal: true,
       },
@@ -527,31 +541,35 @@ class DinoApp {
 
     if (this.remotePlayers.size > 0) {
       for (const rp of this.remotePlayers.values()) {
+        const rpDist = Math.floor(rp.state.distance || 0);
         results.push({
           name: sanitizeTextNoEmojis(rp.profile.name) || 'Rival',
           color: rp.profile.color,
-          distance: Math.floor(rp.state.distance || 0),
+          score: rp.state.score ?? Math.floor(rpDist / 10),
+          distance: rpDist,
           isLocal: false,
         });
       }
     } else if (this.remoteProfile) {
+      const rpDist = this.remoteDeathDistance || 0;
       results.push({
         name: sanitizeTextNoEmojis(this.remoteProfile.name) || 'Rival',
         color: this.remoteProfile.color,
-        distance: this.remoteDeathDistance || 0,
+        score: Math.floor(rpDist / 10),
+        distance: rpDist,
         isLocal: false,
       });
     }
 
-    // Sort descending by distance
-    results.sort((a, b) => b.distance - a.distance);
+    // Sort descending by score, tiebreak by physical distance
+    results.sort((a, b) => b.score - a.score || b.distance - a.distance);
     const winner = results[0];
     const isLocalWinner = winner.isLocal;
 
     if (results.length > 2) {
       // 3 or 4 players mode leaderboard
       const rankingText = results
-        .map((r, i) => `${i + 1}º ${r.name}: ${r.distance}m`)
+        .map((r, i) => `${i + 1}º ${r.name}: ${r.score} pts`)
         .join(' | ');
       this.modalScoresLine.textContent = rankingText;
 
@@ -561,42 +579,42 @@ class DinoApp {
         this.modalResultTitle.style.color = '#f1c40f';
         this.modalResultSub.textContent = '¡HAS GANADO LA CARRERA MULTIJUGADOR!';
         this.modalResultIcon.src = '/icons/trophy.svg';
-        this.modalDiffBadge.textContent = `1º LUGAR CON ${myDist} METROS`;
+        this.modalDiffBadge.textContent = `1º LUGAR CON ${myScore} PUNTOS`;
         this.modalDiffBadge.style.color = '#2ecc71';
         this.matchOverlay = {
           type: 'VICTORY',
-          myDistance: myDist,
-          rivalDistance: results[1]?.distance || 0,
+          myDistance: myScore,
+          rivalDistance: results[1]?.score || 0,
           rivalName: results[1]?.name || 'Rival',
         };
       } else {
         const myRank = results.findIndex(r => r.isLocal) + 1;
         this.modalResultTitle.textContent = 'G A M E   O V E R';
         this.modalResultTitle.style.color = '#e74c3c';
-        this.modalResultSub.textContent = `GANADOR: ${winner.name.toUpperCase()} (${winner.distance}m)`;
+        this.modalResultSub.textContent = `GANADOR: ${winner.name.toUpperCase()} (${winner.score} pts)`;
         this.modalResultIcon.src = '/icons/close.svg';
         this.modalDiffBadge.textContent = `TERMINASTE EN ${myRank}º LUGAR`;
         this.modalDiffBadge.style.color = '#e74c3c';
         this.matchOverlay = {
           type: 'DEFEAT',
-          myDistance: myDist,
-          rivalDistance: winner.distance,
+          myDistance: myScore,
+          rivalDistance: winner.score,
           rivalName: winner.name,
         };
       }
     } else {
       // 2 players (1v1) mode - exact authentic format
-      const rival = results.find(r => !r.isLocal) || { name: 'Rival', distance: 0 };
-      const comp = formatMatchComparison(myDist, rival.distance, rival.name);
+      const rival = results.find(r => !r.isLocal) || { name: 'Rival', score: 0, distance: 0 };
+      const comp = formatMatchComparison(myScore, rival.score, rival.name);
       this.modalScoresLine.textContent = comp.detailText;
       this.modalDiffBadge.textContent = comp.diffText;
 
-      if (myDist > rival.distance) {
+      if (myScore > rival.score) {
         this.sessionScore.recordWin('local');
         this.matchOverlay = {
           type: 'VICTORY',
-          myDistance: myDist,
-          rivalDistance: rival.distance,
+          myDistance: myScore,
+          rivalDistance: rival.score,
           rivalName: rival.name,
         };
         this.modalResultTitle.textContent = 'VICTORIA';
@@ -604,24 +622,24 @@ class DinoApp {
         this.modalResultSub.textContent = '¡HAS GANADO EL DUELO!';
         this.modalResultIcon.src = '/icons/trophy.svg';
         this.modalDiffBadge.style.color = '#2ecc71';
-      } else if (myDist < rival.distance) {
+      } else if (myScore < rival.score) {
         this.sessionScore.recordWin('remote');
         this.matchOverlay = {
           type: 'DEFEAT',
-          myDistance: myDist,
-          rivalDistance: rival.distance,
+          myDistance: myScore,
+          rivalDistance: rival.score,
           rivalName: rival.name,
         };
         this.modalResultTitle.textContent = 'G A M E   O V E R';
         this.modalResultTitle.style.color = '#e74c3c';
-        this.modalResultSub.textContent = `${rival.name.toUpperCase()} LLEGÓ MÁS LEJOS`;
+        this.modalResultSub.textContent = `${rival.name.toUpperCase()} SACÓ MÁS PUNTOS`;
         this.modalResultIcon.src = '/icons/close.svg';
         this.modalDiffBadge.style.color = '#e74c3c';
       } else {
-        this.matchOverlay = { type: 'TIE', distance: myDist };
+        this.matchOverlay = { type: 'TIE', distance: myScore };
         this.modalResultTitle.textContent = '¡ EMPATE !';
         this.modalResultTitle.style.color = '#f1c40f';
-        this.modalResultSub.textContent = `AMBOS CHOCARON A LOS ${myDist} METROS`;
+        this.modalResultSub.textContent = `AMBOS EMPATARON CON ${myScore} PUNTOS`;
         this.modalResultIcon.src = '/icons/flag.svg';
         this.modalDiffBadge.style.color = '#acacac';
       }
@@ -652,8 +670,8 @@ class DinoApp {
       this.modalResultSub.textContent = 'EL RIVAL ABANDONÓ LA PARTIDA';
       this.modalResultIcon.src = '/icons/flag.svg';
 
-      const myDist = this.localDeathDistance !== null ? this.localDeathDistance : Math.floor(this.localEngine.distance);
-      this.modalScoresLine.textContent = `CORRISTE ${myDist} METROS`;
+      const myScore = this.localEngine.score;
+      this.modalScoresLine.textContent = `PUNTAJE: ${myScore} PTS`;
       this.modalDiffBadge.textContent = 'RIVAL DESCONECTADO';
       this.modalDiffBadge.style.color = '#e74c3c';
 
@@ -1342,7 +1360,7 @@ class DinoApp {
             : 'META: 1.000 PTS';
         this.sessionScoreTag.textContent = `${prefix} · ${bestStr}`;
       } else {
-        const best = this.soloHighScore > 0 ? `RÉCORD: ${this.soloHighScore}m` : 'MODO LIBRE';
+        const best = this.soloHighScore > 0 ? `RÉCORD: ${this.soloHighScore} PTS` : 'MODO LIBRE';
         this.sessionScoreTag.textContent = best;
       }
       this.modalSeriesBadge.textContent = '';

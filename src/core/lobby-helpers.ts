@@ -165,17 +165,17 @@ export interface SoloModalDisplayState {
  * Formats clean, non-duplicated stats for the Solo Mode game over modal.
  */
 export function formatSoloModalDisplay(
-  currentDistance: number,
+  currentScore: number,
   previousHighScore: number
 ): SoloModalDisplayState {
-  const isNewRecord = currentDistance > previousHighScore;
-  const distanceText = `DISTANCIA: ${currentDistance} METROS`;
+  const isNewRecord = currentScore > previousHighScore;
+  const distanceText = `PUNTAJE: ${currentScore} PTS`;
 
   let statusText = '';
-  if (isNewRecord && currentDistance > 0) {
-    statusText = '¡NUEVO RECORD PERSONAL!';
+  if (isNewRecord && currentScore > 0) {
+    statusText = '¡NUEVO RÉCORD!';
   } else if (previousHighScore > 0) {
-    statusText = `RECORD: ${previousHighScore} METROS`;
+    statusText = `RÉCORD: ${previousHighScore} PTS`;
   }
 
   return {

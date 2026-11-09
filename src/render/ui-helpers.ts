@@ -50,14 +50,14 @@ export interface MatchComparison {
  * Formats distance metrics and victory/defeat differences cleanly without emojis.
  */
 export function formatMatchComparison(
-  myDist: number,
-  rivalDist: number,
+  myScore: number,
+  rivalScore: number,
   rivalName: string
 ): MatchComparison {
-  const diff = myDist - rivalDist;
+  const diff = myScore - rivalScore;
   const cleanRival = sanitizeTextNoEmojis(rivalName) || 'Rival';
-  const diffText = diff >= 0 ? `+${diff} METROS DE VENTAJA` : `-${Math.abs(diff)} METROS DE DIFERENCIA`;
-  const detailText = `TÚ: ${myDist} m   vs   ${cleanRival}: ${rivalDist} m`;
+  const diffText = diff >= 0 ? `+${diff} PUNTOS DE VENTAJA` : `-${Math.abs(diff)} PUNTOS DE DIFERENCIA`;
+  const detailText = `TÚ: ${myScore} pts   vs   ${cleanRival}: ${rivalScore} pts`;
 
   return {
     diff,

@@ -49,7 +49,7 @@ A diferencia de los juegos multijugador con servidores lentos que generan retard
 ### 👥 Sala de Espera y Control de Inicio por el Host
 - Al compartir tu enlace o código, el rival entra a la sala de espera sin iniciar la partida automáticamente.
 - **Personalización Completa**: Ambos jugadores pueden ajustar su nombre, color y skin con tranquilidad.
-- **Inicio Exclusivo del Host**: El anfitrión decide cuándo pulsar **▶ INICIAR PARTIDA**, activando una **cuenta regresiva de 5 segundos** sincronizada para que ambos jugadores se preparen.
+- **Inicio Exclusivo del Host**: El anfitrión decide cuándo pulsar **▶ INICIAR PARTIDA**, activando una **cuenta regresiva de 3 segundos** sincronizada para que ambos jugadores se preparen.
 
 ### 🔄 Anti-Freeze en Pestañas en Segundo Plano (Web Worker Ticker)
 - Se incluye un worker dedicado que mantiene el ciclo de física activo a 60 ticks/s incluso si uno de los jugadores tiene la pestaña en segundo plano o minimizada, evitando congelamientos al inicio de la carrera.
@@ -57,7 +57,7 @@ A diferencia de los juegos multijugador con servidores lentos que generan retard
 ### 💀 Mecánica Asimétrica de Muerte y Modo Espectador
 - Si **tú chocas primero**: Tu carrera termina y tu pantalla entra en **Modo Espectador** (`GAME OVER` únicamente en tu carril), permitiéndote ver en vivo y en directo cómo tu rival sigue esquivando obstáculos hasta que cometa un error.
 - El **jugador que sobrevive**: ¡Sigue corriendo libremente sin interrupciones ni pantallas molestas! Puede romper su récord y estirar la ventaja. Al chocar finalmente, se le despliega su gloriosa **Pantalla de Victoria**.
-- Tablero final comparativo con cálculo exacto de distancia y metros de diferencia.
+- Tablero final comparativo con cálculo exacto de puntaje y puntos de diferencia.
 
 ### 🦖 Física y Hitboxes Auténticas de Google Chromium
 - **Multi-Box Hitboxes**: Adiós a los rectángulos toscos. Se utiliza el modelo anatómico exacto de 6 cajas de colisión para el T-Rex corriendo (cabeza, torso, vientre, muslos, patas) y caja horizontal alargada para agachado.
@@ -75,7 +75,7 @@ A diferencia de los juegos multijugador con servidores lentos que generan retard
   6. `T-Rex Jinete 🐎` (Google Tokyo 2020 Olympics).
   7. `T-Rex Natación 🏊` (Google Tokyo 2020 Olympics).
 - **Selector de Paleta Retro**: Color de apodo y aura personalizable.
-- **Modo Práctica contra Bot Offline**: Para jugar en solitario sin conexión cuando no tengas un rival a mano.
+- **Modos en Solitario**: Modo Libre (sin fin) y Reto del Día con semilla determinista UTC.
 
 ---
 

@@ -42,6 +42,14 @@
     `https://dino-online-1v1.vercel.app`
   - Persistencia resiliente en `localStorage` (`dino_daily_<YYYY-MM-DD>`) con saneamiento de JSON y recuperación ante datos corruptos.
 
+- **Unificación Completa de Métricas a Puntos (Score):**
+  - Se eliminó de raíz la presentación de puntajes como metros (`m`, `metros`) en toda la interfaz de usuario, overlays del canvas y modales de fin de partida.
+  - La simulación física conserva internamente `distance` para velocidad, avance de pista, posicionamiento de obstáculos y colisiones, calculando el puntaje como `score = Math.floor(distance / 10)`.
+  - El contador superior derecho del canvas ahora muestra puntaje limpio con etiqueta `PTS` (`00120 PTS`).
+  - El récord de Modo Libre (`dino_solo_highscore`) almacena y compara puntos (`PTS`), con migración automática de récords previos guardados en distancia.
+  - Las comparaciones multijugador evalúan y expresan diferencias en puntos (`+50 PUNTOS DE VENTAJA`, `TÚ: 120 pts vs RIVAL: 80 pts`).
+  - Se actualizaron las pruebas unitarias y el README eliminando expectativas en metros.
+
 ---
 
 ## 2. Decisiones Arquitectónicas Clave (ADRs)
