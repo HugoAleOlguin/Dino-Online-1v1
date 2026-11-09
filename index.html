@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
   <title>Dino 1v1 Online — Duelo Clásico</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" href="/favicon.png">
@@ -69,7 +69,7 @@
 
               <div class="separator-line"><span>O EN SOLITARIO</span></div>
 
-              <button id="solo-return-game-btn" class="classic-btn classic-btn-primary hidden" style="margin-bottom: 8px;">
+              <button id="solo-return-game-btn" class="classic-btn classic-btn-primary hidden">
                 <img src="/icons/reload.svg" width="16" height="16" alt="" class="btn-icon">
                 <span>VOLVER AL JUEGO</span>
               </button>
@@ -80,7 +80,7 @@
               </button>
             </div>
 
-            <!-- VIEW 2: Host Room Created (Replaces View 1 completely!) -->
+            <!-- VIEW 2: Host Room Created -->
             <div id="host-room-view" class="room-panel hidden">
               <div class="panel-header">
                 <span class="panel-label">SALA DE ESPERA</span>
@@ -91,7 +91,6 @@
                 TÚ: 0 | RIVAL: 0
               </div>
               
-              <!-- Quick & Simple Copy Buttons -->
               <div class="quick-copy-group">
                 <button id="copy-code-btn" class="classic-btn btn-compact">
                   <img src="/icons/zap.svg" width="14" height="14" alt="" class="btn-icon">
@@ -126,7 +125,7 @@
                   </div>
                 </div>
 
-                <!-- Card 2: Rival (Only "ESPERANDO RIVAL..." indicator) -->
+                <!-- Card 2: Rival -->
                 <div id="guest-card" class="player-lobby-card guest-card empty-slot">
                   <div id="guest-card-empty" class="empty-slot-content">
                     <span class="pulsing-dot"></span>
@@ -155,17 +154,17 @@
               <!-- Room status banner -->
               <div id="host-status-box" class="room-status-banner"></div>
 
-              <button id="host-return-game-btn" class="classic-btn btn-secondary hidden" style="margin-top: 10px; width: 100%;">
+              <button id="host-return-game-btn" class="classic-btn btn-secondary hidden">
                 VOLVER AL JUEGO
               </button>
-              <button id="host-start-btn" class="classic-btn classic-btn-primary hidden" style="margin-top: 10px; width: 100%;">
+              <button id="host-start-btn" class="classic-btn classic-btn-primary hidden">
                 INICIAR PARTIDA (5s)
               </button>
 
               <button id="cancel-room-btn" class="classic-btn btn-back">SALIR DE LA SALA</button>
             </div>
 
-            <!-- VIEW 3: Join Room by Code (Replaces View 1 completely!) -->
+            <!-- VIEW 3: Join Room by Code -->
             <div id="join-room-view" class="room-panel hidden">
               <span class="panel-label">CÓDIGO DE LA SALA:</span>
               <div class="join-input-group">
@@ -175,7 +174,7 @@
               <button id="cancel-join-btn" class="classic-btn btn-back">VOLVER AL MENÚ</button>
             </div>
 
-            <!-- VIEW 4: Guest in Room (Waiting for host to start!) -->
+            <!-- VIEW 4: Guest in Room -->
             <div id="guest-room-view" class="room-panel hidden">
               <div class="panel-header">
                 <span class="panel-label">SALA DE ESPERA</span>
@@ -222,7 +221,7 @@
               <!-- Room status banner -->
               <div id="guest-status-box" class="room-status-banner"></div>
 
-              <button id="guest-ready-btn" class="classic-btn classic-btn-primary hidden" style="margin-top: 10px; width: 100%;">
+              <button id="guest-ready-btn" class="classic-btn classic-btn-primary hidden">
                 VOLVER AL JUEGO
               </button>
               <button id="cancel-guest-btn" class="classic-btn btn-back">SALIR DE LA SALA</button>
@@ -256,10 +255,10 @@
         <canvas id="game-canvas" width="960" height="540"></canvas>
 
         <!-- Centered Arcade End-Game Overlay (Victory / Defeat / Tie) -->
-        <div id="game-result-modal" class="game-modal-overlay hidden">
+        <div id="game-result-modal" class="game-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-result-title">
           <div class="modal-card">
             <div id="modal-icon-badge" class="modal-icon-badge">
-              <img id="modal-result-icon" src="/icons/trophy.svg" alt="" width="32" height="32">
+              <img id="modal-result-icon" src="/icons/trophy.svg" alt="" width="28" height="28">
             </div>
             <h2 id="modal-result-title" class="modal-title">VICTORIA</h2>
             <p id="modal-result-sub" class="modal-subtitle">¡HAS GANADO EL DUELO!</p>
@@ -274,15 +273,15 @@
             <div id="modal-rematch-status" class="rematch-status-msg hidden"></div>
 
             <div class="modal-actions">
-              <button id="modal-rematch-btn" class="classic-btn classic-btn-primary btn-large">
+              <button id="modal-rematch-btn" class="classic-btn classic-btn-primary">
                 <img src="/icons/reload.svg" width="16" height="16" alt="" class="btn-icon">
                 <span id="modal-rematch-text">REVANCHA</span>
               </button>
               <button id="modal-to-lobby-btn" class="classic-btn btn-secondary">
-                IR AL LOBBY
+                CAMBIAR SKIN (MANTENER SALA)
               </button>
               <button id="modal-exit-btn" class="classic-btn btn-back">
-                SALIR DE LA SALA
+                ABANDONAR SALA Y SALIR
               </button>
             </div>
           </div>
@@ -302,42 +301,40 @@
   </div>
 
   <!-- DEBUG / BOTS MODAL PANEL (Tecla 'B' o ?debug) -->
-  <div id="debug-modal" class="game-modal-overlay hidden" style="z-index: 9999;">
-    <div class="modal-card" style="max-width: 480px; text-align: left;">
-      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #333; padding-bottom: 8px; margin-bottom: 12px;">
-        <h2 style="margin: 0; font-size: 1.1rem; color: #f1c40f; display: flex; align-items: center; gap: 8px;">
-          🛠️ PANEL DE DEBUG & BOTS
-        </h2>
-        <button id="debug-close-btn" class="classic-btn btn-compact" style="padding: 2px 8px;">✕</button>
+  <div id="debug-modal" class="game-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="debug-title">
+    <div class="modal-card debug-card">
+      <div class="debug-header">
+        <h2 id="debug-title" class="debug-title">🛠️ PANEL DE DEBUG & BOTS</h2>
+        <button id="debug-close-btn" class="classic-btn btn-compact">✕</button>
       </div>
 
-      <p style="font-size: 0.8rem; color: #acacac; margin-bottom: 14px;">
-        Atajo: pulsa la tecla <kbd style="background: #222; border: 1px solid #444; padding: 2px 5px; border-radius: 3px; color: #fff;">B</kbd> para abrir/cerrar este panel en cualquier momento.
+      <p class="debug-desc">
+        Atajo: pulsa la tecla <kbd>B</kbd> para abrir/cerrar este panel en cualquier momento.
       </p>
 
-      <div style="display: flex; flex-direction: column; gap: 10px;">
-        <button id="debug-add-bot-btn" class="classic-btn classic-btn-primary" style="width: 100%; text-align: left; padding: 8px 12px;">
-          🤖 <strong>+ Añadir 1 Bot</strong> <span style="font-size: 0.75rem; opacity: 0.8; display: block;">Agrega un bot autónomo con física y reacción real</span>
+      <div class="debug-btn-list">
+        <button id="debug-add-bot-btn" class="classic-btn classic-btn-primary">
+          🤖 + Añadir 1 Bot <span class="debug-btn-sub">Agrega un bot autónomo con física y reacción real</span>
         </button>
 
-        <button id="debug-fill-room-btn" class="classic-btn btn-secondary" style="width: 100%; text-align: left; padding: 8px 12px;">
-          👥 <strong>Llenar Sala (4/4 Jugadores)</strong> <span style="font-size: 0.75rem; opacity: 0.8; display: block;">Completa los 4 slots para probar el layout de 4 pantallas y escala 0.58</span>
+        <button id="debug-fill-room-btn" class="classic-btn btn-secondary">
+          👥 Llenar Sala (4/4 Jugadores) <span class="debug-btn-sub">Completa los 4 slots para probar el layout de 4 pantallas</span>
         </button>
 
-        <button id="debug-spectate-bot-btn" class="classic-btn btn-secondary" style="width: 100%; text-align: left; padding: 8px 12px;">
-          👀 <strong>Unir Bot en Modo Espectador</strong> <span style="font-size: 0.75rem; opacity: 0.8; display: block;">Simula un bot entrando a mitad de partida</span>
+        <button id="debug-spectate-bot-btn" class="classic-btn btn-secondary">
+          👀 Unir Bot en Modo Espectador <span class="debug-btn-sub">Simula un bot entrando a mitad de partida</span>
         </button>
 
-        <button id="debug-test-room-full-btn" class="classic-btn btn-secondary" style="width: 100%; text-align: left; padding: 8px 12px;">
-          🚫 <strong>Simular Intento de Entrada (Sala Llena)</strong> <span style="font-size: 0.75rem; opacity: 0.8; display: block;">Prueba el rechazo explícito y mensaje de sala llena (4/4)</span>
+        <button id="debug-test-room-full-btn" class="classic-btn btn-secondary">
+          🚫 Simular Intento de Entrada (Sala Llena) <span class="debug-btn-sub">Prueba el rechazo explícito (4/4)</span>
         </button>
 
-        <button id="debug-clear-bots-btn" class="classic-btn btn-back" style="width: 100%; text-align: left; padding: 8px 12px; margin-top: 6px;">
-          🧹 <strong>Limpiar / Expulsar Todos los Bots</strong>
+        <button id="debug-clear-bots-btn" class="classic-btn btn-back">
+          🧹 Limpiar / Expulsar Todos los Bots
         </button>
       </div>
 
-      <div id="debug-status-text" style="margin-top: 12px; font-size: 0.8rem; color: #2ecc71; font-weight: bold; min-height: 18px;"></div>
+      <div id="debug-status-text" class="debug-status-text"></div>
     </div>
   </div>
 
