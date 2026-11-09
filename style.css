@@ -308,6 +308,44 @@ input[type="text"]:focus {
   color: var(--text);
 }
 
+.classic-btn-daily {
+  background: var(--surface-alt);
+  border-color: var(--border-light);
+  color: var(--text);
+}
+
+.classic-btn-daily:hover {
+  background: var(--border);
+  color: #fff;
+}
+
+.daily-btn-text {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.daily-badge {
+  font-size: 0.55rem;
+  padding: 2px 6px;
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  color: var(--accent);
+}
+
+.btn-share {
+  background: #27ae60;
+  border-color: #2ecc71;
+  color: #ffffff;
+}
+
+.btn-share:hover {
+  background: #2ecc71;
+  color: #000000;
+}
+
 .btn-compact {
   padding: 8px 12px;
   font-size: 0.62rem;

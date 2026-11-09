@@ -29,6 +29,19 @@
   - Soporte para orientación horizontal móvil (landscape) sin desbordes ni scroll accidental.
   - Micro-vibración háptica `navigator.vibrate?.(12)` en controles táctiles.
 
+- **Modo Desafío Diario (Daily Challenge):**
+  - Reto diario determinista compartido universalmente según la fecha UTC (`YYYY-MM-DD`).
+  - Semilla entera generada mediante hash no lineal FNV-1a garantizando idéntica pista en cualquier navegador y sistema operativo.
+  - 3 intentos oficiales diarios: cada carrera termina al chocar (muerte del Dino) registrando su puntuación real (`score`).
+  - Meta de distancia/score: `1.000 pts`. Si se supera, se marca como completada y permite continuar los intentos restantes para buscar mayor distancia récord.
+  - Modo Práctica ilimitado tras agotar los 3 intentos oficiales (no altera los intentos oficiales ni la mejor marca oficial).
+  - Tarjeta compartible limpia estilo Wordle copiada al portapapeles con fallback:
+    `🦖 Dino Online — Desafío Diario · DD/MM/YYYY`
+    `Mejor marca: X pts`
+    `Meta de 1.000: ¡Superada! / No alcanzada`
+    `https://dino-online-1v1.vercel.app`
+  - Persistencia resiliente en `localStorage` (`dino_daily_<YYYY-MM-DD>`) con saneamiento de JSON y recuperación ante datos corruptos.
+
 ---
 
 ## 2. Decisiones Arquitectónicas Clave (ADRs)
@@ -42,17 +55,21 @@
    - Sustitución de `Date.now()` absoluto por duración relativa transmitida y descuento de un viaje de ida ($RTT/2$).
 5. **Backpressure Preventivo:**
    - Descarte local de paquetes efímeros de alta frecuencia (30Hz) si el socket WebRTC está congestionado.
+6. **Desafío Diario Determinista en Tiempo Universal UTC:**
+   - Uso estricto de fecha UTC y algoritmo hash FNV-1a para independizar la semilla de los husos horarios del sistema operativo del cliente.
+   - Congelamiento de fecha al inicio de carrera (`runDateUtc`) para prevenir desajustes si una carrera inicia a las 23:59 UTC y termina tras la medianoche.
 
 ---
 
 ## 3. Pruebas y Cobertura (TDD)
-- **Suites de Pruebas:** 17 suites con **114 tests pasando al 100%** en Vitest.
+- **Suites de Pruebas:** 18 suites con **129 tests pasando al 100%** en Vitest.
+  - `tests/daily-challenge.test.ts` (15 tests): Semilla determinista FNV-1a, ciclo de 3 intentos, práctica ilimitada, resiliencia de JSON corrupto, tarjeta de texto y copiado al portapapeles.
   - `tests/security-resilience.test.ts` (11 tests): Saneamiento XSS, protección contra suplantación en `DIED`, inmunidad de Host y prevención de soft-locks.
   - `tests/p2p-sync.test.ts` (18 tests): Secuenciación de paquetes, descarte fuera de orden, countdown relativo, backpressure y ping EWMA.
   - `tests/fluidity-interpolation.test.ts` (16 tests): Interpolación $\alpha$, balística parabólica, culling $O(\log N)$ y sincronización de Web Worker.
   - `tests/ux-accessibility.test.ts` (12 tests): Banners de estado, safe areas, parsing de URLs, swatches accesibles y clases de ping.
   - Suites existentes (57 tests): `tests/solo-modal.test.ts`, `tests/multi-track-layout.test.ts`, etc.
-- **Build de Producción:** Vite + TypeScript compilan con **0 errores** (1.68s, 168 kB JS).
+- **Build de Producción:** Vite + TypeScript compilan con **0 errores** (1.45s, 175 kB JS).
 
 ---
 

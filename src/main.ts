@@ -26,6 +26,18 @@ import {
   formatSoloModalDisplay,
   extractRoomCode,
 } from './core/lobby-helpers';
+import {
+  DailyChallengeState,
+  getCurrentDateUtc,
+  getDailySeed,
+  loadDailyState,
+  saveDailyState,
+  recordDailyRun,
+  formatDailyShareText,
+  copyTextToClipboard,
+  MAX_OFFICIAL_ATTEMPTS,
+  DAILY_TARGET_SCORE,
+} from './core/daily-challenge';
 
 // Authentic Chrome Dino Palette
 const COLORS = [
@@ -85,6 +97,15 @@ class DinoApp {
   // Solo Mode
   private isSoloMode = false;
   private soloHighScore: number = parseInt(localStorage.getItem('dino_solo_highscore') || '0', 10);
+
+  // Daily Challenge Mode
+  private isDailyMode = false;
+  private currentDailyDateUtc = '';
+  private currentDailyState: DailyChallengeState | null = null;
+  private playDailyBtn = document.getElementById('play-daily-btn') as HTMLButtonElement | null;
+  private dailyBtnBadge = document.getElementById('daily-btn-badge');
+  private modalShareBtn = document.getElementById('modal-share-btn') as HTMLButtonElement | null;
+  private modalShareText = document.getElementById('modal-share-text');
 
   // Game Engine & State
   private localEngine!: GameEngine;
@@ -239,6 +260,7 @@ class DinoApp {
     this.setupUI();
     this.setupInputListeners();
     this.setupBackgroundWorker();
+    this.updateDailyButtonBadge();
 
     // 6. Check URL query param for automatic room joining (?room=ABCD)
     const urlParams = new URLSearchParams(window.location.search);
@@ -375,6 +397,81 @@ class DinoApp {
 
   private handleSoloGameOver(): void {
     const myDist = this.localDeathDistance || 0;
+    const currentScore = this.localEngine.score;
+
+    if (this.isDailyMode) {
+      if (!this.currentDailyState) {
+        this.currentDailyState = loadDailyState(this.currentDailyDateUtc || getCurrentDateUtc());
+      }
+
+      const { newState, isOfficial } = recordDailyRun(this.currentDailyState, currentScore);
+      this.currentDailyState = newState;
+      if (isOfficial) {
+        saveDailyState(newState);
+      }
+      this.updateDailyButtonBadge();
+
+      this.matchOverlay = {
+        type: 'SOLO_GAME_OVER',
+        distance: myDist,
+        highScore: newState.bestOfficialScore,
+      };
+
+      this.modalResultTitle.textContent = 'DESAFÍO DIARIO';
+      this.modalResultTitle.style.color = newState.completed ? '#2ecc71' : '#e74c3c';
+      this.modalResultIcon.src = newState.completed ? '/icons/trophy.svg' : '/icons/flag.svg';
+
+      if (isOfficial) {
+        const attNum = newState.attempts.length;
+        if (currentScore >= DAILY_TARGET_SCORE) {
+          this.modalResultSub.textContent = `¡META SUPERADA EN INTENTO ${attNum}/3! (${currentScore} pts)`;
+        } else {
+          this.modalResultSub.textContent = `INTENTO OFICIAL ${attNum}/3: ${currentScore} pts`;
+        }
+      } else {
+        this.modalResultSub.textContent = `CARRERA DE PRÁCTICA: ${currentScore} pts`;
+      }
+
+      this.modalScoresLine.textContent = `MEJOR MARCA OFICIAL: ${newState.bestOfficialScore} pts`;
+      if (newState.completed) {
+        this.modalDiffBadge.textContent = `META DE ${DAILY_TARGET_SCORE} PTS: ¡SUPERADA!`;
+        this.modalDiffBadge.style.color = '#2ecc71';
+      } else {
+        this.modalDiffBadge.textContent = `META DE ${DAILY_TARGET_SCORE} PTS: NO ALCANZADA`;
+        this.modalDiffBadge.style.color = '#acacac';
+      }
+
+      this.modalRematchBtn.classList.remove('hidden');
+      if (newState.attempts.length < MAX_OFFICIAL_ATTEMPTS) {
+        this.modalRematchText.textContent = `SIGUIENTE INTENTO (${newState.attempts.length + 1}/3)`;
+      } else {
+        this.modalRematchText.textContent = 'PRACTICAR PISTA DE HOY';
+      }
+      this.modalRematchStatus.classList.add('hidden');
+
+      if (this.modalShareBtn) {
+        this.modalShareBtn.classList.remove('hidden');
+      }
+
+      const toLobbyBtn = this.modalToLobbyBtn as HTMLButtonElement;
+      if (toLobbyBtn) {
+        toLobbyBtn.disabled = false;
+        toLobbyBtn.classList.remove('btn-disabled');
+        toLobbyBtn.textContent = 'IR AL LOBBY';
+        toLobbyBtn.classList.remove('hidden');
+      }
+
+      this.updateScoreboardDisplays();
+      this.modalSeriesBadge.classList.add('hidden');
+      this.resultModal.classList.remove('hidden');
+      return;
+    }
+
+    // Classic solo mode: hide share button
+    if (this.modalShareBtn) {
+      this.modalShareBtn.classList.add('hidden');
+    }
+
     const prevHighScore = this.soloHighScore;
     const isNewRecord = myDist > prevHighScore;
     if (isNewRecord) {
@@ -966,6 +1063,7 @@ class DinoApp {
     this.createRoomBtn.addEventListener('click', async () => {
       this.hideError();
       this.isSoloMode = false;
+      this.isDailyMode = false;
       this.hasPlayedMatchWithCurrentRival = false;
       this.remoteDisconnectedDuringMatch = false;
       this.sessionScore.reset();
@@ -1071,13 +1169,14 @@ class DinoApp {
       }
     });
 
-    // 11. Solo Mode: Play Solo
+    // 11. Solo Mode: Play Solo (Classic)
     this.playSoloBtn.addEventListener('click', () => {
       this.hideError();
       this.isSoloMode = true;
+      this.isDailyMode = false;
       this.sessionScore.reset();
 
-      this.gameModeTag.textContent = 'MODO: EN SOLITARIO';
+      this.gameModeTag.textContent = 'MODO: EN SOLITARIO (CLÁSICO)';
       this.pingText.textContent = 'LOCAL';
       this.updateScoreboardDisplays();
 
@@ -1085,6 +1184,13 @@ class DinoApp {
       this.showGameScreen();
       this.startCountdown(seed, performance.now() + COUNTDOWN_DURATION_MS);
     });
+
+    // 11b. Daily Challenge Mode Button
+    if (this.playDailyBtn) {
+      this.playDailyBtn.addEventListener('click', () => {
+        this.startDailyChallenge();
+      });
+    }
 
     // 12. Copy Code Button
     if (this.copyCodeBtn) {
@@ -1131,6 +1237,24 @@ class DinoApp {
       this.handleRematchClick();
     });
 
+    // 17b. Modal Share Button (Daily Challenge)
+    if (this.modalShareBtn) {
+      this.modalShareBtn.addEventListener('click', async () => {
+        if (!this.currentDailyState) {
+          this.currentDailyState = loadDailyState(this.currentDailyDateUtc || getCurrentDateUtc());
+        }
+        const text = formatDailyShareText(this.currentDailyState);
+        const ok = await copyTextToClipboard(text);
+        if (ok && this.modalShareText) {
+          const prev = this.modalShareText.textContent;
+          this.modalShareText.textContent = '¡COPIADO! ✔️';
+          setTimeout(() => {
+            if (this.modalShareText) this.modalShareText.textContent = prev || 'COMPARTIR RESULTADO';
+          }, 2000);
+        }
+      });
+    }
+
     // 18. Modal Go to Lobby (To change skin/color without leaving session)
     this.modalToLobbyBtn.addEventListener('click', () => {
       this.returnToLobbyFromGame();
@@ -1163,6 +1287,7 @@ class DinoApp {
     if (this.soloReturnGameBtn) {
       this.soloReturnGameBtn.addEventListener('click', () => {
         this.isSoloMode = true;
+        this.isDailyMode = false;
         const seed = Math.floor(Math.random() * 1000000);
         this.showGameScreen();
         this.startCountdown(seed, performance.now() + COUNTDOWN_DURATION_MS);
@@ -1170,10 +1295,64 @@ class DinoApp {
     }
   }
 
+  private updateDailyButtonBadge(): void {
+    if (!this.dailyBtnBadge) return;
+    const todayUtc = getCurrentDateUtc();
+    const state = loadDailyState(todayUtc);
+    const count = state.attempts.length;
+
+    if (count < MAX_OFFICIAL_ATTEMPTS) {
+      if (state.completed) {
+        this.dailyBtnBadge.textContent = `${count}/3 · ⭐ ${state.bestOfficialScore} pts`;
+      } else {
+        this.dailyBtnBadge.textContent = `${MAX_OFFICIAL_ATTEMPTS - count} INTENTOS`;
+      }
+    } else {
+      if (state.completed) {
+        this.dailyBtnBadge.textContent = `⭐ ${state.bestOfficialScore} pts · PRÁCTICA`;
+      } else {
+        this.dailyBtnBadge.textContent = 'PRÁCTICA';
+      }
+    }
+  }
+
+  private startDailyChallenge(): void {
+    this.hideError();
+    this.isSoloMode = true;
+    this.isDailyMode = true;
+    this.sessionScore.reset();
+
+    this.currentDailyDateUtc = getCurrentDateUtc();
+    this.currentDailyState = loadDailyState(this.currentDailyDateUtc);
+
+    const attCount = this.currentDailyState.attempts.length;
+    if (attCount < MAX_OFFICIAL_ATTEMPTS) {
+      this.gameModeTag.textContent = `MODO: DESAFÍO DIARIO (INTENTO ${attCount + 1}/${MAX_OFFICIAL_ATTEMPTS})`;
+    } else {
+      this.gameModeTag.textContent = 'MODO: DESAFÍO DIARIO (PRÁCTICA)';
+    }
+
+    this.pingText.textContent = 'LOCAL';
+    this.updateScoreboardDisplays();
+
+    const seed = getDailySeed(this.currentDailyDateUtc);
+    this.showGameScreen();
+    this.startCountdown(seed, performance.now() + COUNTDOWN_DURATION_MS);
+  }
+
   private updateScoreboardDisplays(): void {
     if (this.isSoloMode) {
-      const best = this.soloHighScore > 0 ? `RÉCORD: ${this.soloHighScore}m` : 'EN SOLITARIO';
-      this.sessionScoreTag.textContent = best;
+      if (this.isDailyMode && this.currentDailyState) {
+        const metaStr = this.currentDailyState.completed ? '⭐ META SUPERADA' : 'META: 1.000 pts';
+        const bestStr =
+          this.currentDailyState.bestOfficialScore > 0
+            ? `RÉCORD: ${this.currentDailyState.bestOfficialScore} pts`
+            : metaStr;
+        this.sessionScoreTag.textContent = bestStr;
+      } else {
+        const best = this.soloHighScore > 0 ? `RÉCORD: ${this.soloHighScore}m` : 'EN SOLITARIO';
+        this.sessionScoreTag.textContent = best;
+      }
       this.modalSeriesBadge.textContent = '';
       this.modalSeriesBadge.classList.add('hidden');
       this.hostScoreBadge.classList.add('hidden');
@@ -1221,8 +1400,21 @@ class DinoApp {
   private handleRematchClick(): void {
     if (this.isSoloMode) {
       this.resultModal.classList.add('hidden');
-      const seed = Math.floor(Math.random() * 1000000);
-      this.startCountdown(seed, performance.now() + COUNTDOWN_DURATION_MS);
+      if (this.isDailyMode) {
+        const seed = getDailySeed(this.currentDailyDateUtc || getCurrentDateUtc());
+        if (this.currentDailyState) {
+          const attCount = this.currentDailyState.attempts.length;
+          if (attCount < MAX_OFFICIAL_ATTEMPTS) {
+            this.gameModeTag.textContent = `MODO: DESAFÍO DIARIO (INTENTO ${attCount + 1}/${MAX_OFFICIAL_ATTEMPTS})`;
+          } else {
+            this.gameModeTag.textContent = 'MODO: DESAFÍO DIARIO (PRÁCTICA)';
+          }
+        }
+        this.startCountdown(seed, performance.now() + COUNTDOWN_DURATION_MS);
+      } else {
+        const seed = Math.floor(Math.random() * 1000000);
+        this.startCountdown(seed, performance.now() + COUNTDOWN_DURATION_MS);
+      }
       return;
     }
 
@@ -1265,6 +1457,7 @@ class DinoApp {
     this.updateScoreboardDisplays();
 
     if (this.isSoloMode) {
+      this.updateDailyButtonBadge();
       this.roomMenuView.classList.remove('hidden');
       this.hostRoomView.classList.add('hidden');
       this.joinRoomView.classList.add('hidden');
@@ -1330,6 +1523,8 @@ class DinoApp {
   private fullExitToMainMenu(): void {
     this.p2p.cleanup();
     this.isSoloMode = false;
+    this.isDailyMode = false;
+    this.updateDailyButtonBadge();
     this.remoteProfile = null;
     this.sessionScore.reset();
     this.localWantsRematch = false;
@@ -1394,6 +1589,7 @@ class DinoApp {
     }
 
     this.isSoloMode = false;
+    this.isDailyMode = false;
     this.sessionScore.reset();
     this.updateScoreboardDisplays();
     this.gameModeTag.textContent = `SALA: ${cleanCode}`;
