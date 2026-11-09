@@ -46,10 +46,17 @@
 ---
 
 ## 3. Pruebas y Cobertura (TDD)
-- **Suites de Pruebas:** 18 suites con **118 tests pasando al 100%** en Vitest.
+- **Suites de Pruebas:** 17 suites con **114 tests pasando al 100%** en Vitest.
   - `tests/security-resilience.test.ts` (11 tests): Saneamiento XSS, protección contra suplantación en `DIED`, inmunidad de Host y prevención de soft-locks.
   - `tests/p2p-sync.test.ts` (18 tests): Secuenciación de paquetes, descarte fuera de orden, countdown relativo, backpressure y ping EWMA.
   - `tests/fluidity-interpolation.test.ts` (16 tests): Interpolación $\alpha$, balística parabólica, culling $O(\log N)$ y sincronización de Web Worker.
   - `tests/ux-accessibility.test.ts` (12 tests): Banners de estado, safe areas, parsing de URLs, swatches accesibles y clases de ping.
   - Suites existentes (57 tests): `tests/solo-modal.test.ts`, `tests/multi-track-layout.test.ts`, etc.
-- **Build de Producción:** Vite + TypeScript compilan con **0 errores**.
+- **Build de Producción:** Vite + TypeScript compilan con **0 errores** (1.68s, 168 kB JS).
+
+---
+
+## 4. Estado de Producción y Limpieza Reciente
+- **UI Flat Retro Chromium:** Eliminación completa de brillos (`box-shadow`), efectos de latido/pulso CSS y desenfoques innecesarios, logrando una estética minimalista, limpia y directa idéntica al Chromium Dino original.
+- **Erradicación del Modo Debug y Bots:** Se eliminó de raíz el modal de debug, simulación de bots (`bot-simulator.ts`), atajos de teclado (`KeyB`) y parámetros URL (`?debug`). Código 100% de producción limpio.
+- **Producción:** Rama `master` sincronizada en GitHub (`https://github.com/HugoAleOlguin/Dino-Online-1v1.git`) con despliegue automático en Vercel. Build limpio (1.68s, 0 errores).
