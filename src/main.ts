@@ -50,7 +50,7 @@ const COLORS = [
 ];
 
 const SKIN_KEYS = Object.keys(SKINS);
-const COUNTDOWN_DURATION_MS = 5200;
+const COUNTDOWN_DURATION_MS = 3200;
 
 class DinoApp {
   private spriteManager: SpriteManager;
@@ -417,47 +417,36 @@ class DinoApp {
         highScore: newState.bestOfficialScore,
       };
 
-      this.modalResultTitle.textContent = 'DESAFÍO DIARIO';
+      this.modalResultTitle.textContent = newState.completed ? '¡META SUPERADA!' : 'FIN DEL INTENTO';
       this.modalResultTitle.style.color = newState.completed ? '#2ecc71' : '#e74c3c';
       this.modalResultIcon.src = newState.completed ? '/icons/trophy.svg' : '/icons/flag.svg';
 
-      if (isOfficial) {
-        const attNum = newState.attempts.length;
-        if (currentScore >= DAILY_TARGET_SCORE) {
-          this.modalResultSub.textContent = `¡META SUPERADA EN INTENTO ${attNum}/3! (${currentScore} pts)`;
-        } else {
-          this.modalResultSub.textContent = `INTENTO OFICIAL ${attNum}/3: ${currentScore} pts`;
-        }
-      } else {
-        this.modalResultSub.textContent = `CARRERA DE PRÁCTICA: ${currentScore} pts`;
-      }
+      this.modalResultSub.textContent = isOfficial
+        ? `Intento ${newState.attempts.length} de 3 · Meta: 1.000 pts`
+        : 'Práctica libre · Meta: 1.000 pts';
 
-      this.modalScoresLine.textContent = `MEJOR MARCA OFICIAL: ${newState.bestOfficialScore} pts`;
-      if (newState.completed) {
-        this.modalDiffBadge.textContent = `META DE ${DAILY_TARGET_SCORE} PTS: ¡SUPERADA!`;
-        this.modalDiffBadge.style.color = '#2ecc71';
-      } else {
-        this.modalDiffBadge.textContent = `META DE ${DAILY_TARGET_SCORE} PTS: NO ALCANZADA`;
-        this.modalDiffBadge.style.color = '#acacac';
-      }
+      this.modalScoresLine.textContent = `PUNTAJE: ${currentScore} PTS`;
+      this.modalDiffBadge.textContent = `MEJOR DE HOY: ${newState.bestOfficialScore} PTS`;
+      this.modalDiffBadge.style.color = newState.completed ? '#2ecc71' : '#acacac';
 
       this.modalRematchBtn.classList.remove('hidden');
       if (newState.attempts.length < MAX_OFFICIAL_ATTEMPTS) {
-        this.modalRematchText.textContent = `SIGUIENTE INTENTO (${newState.attempts.length + 1}/3)`;
+        this.modalRematchText.textContent = `INTENTO ${newState.attempts.length + 1} DE 3`;
       } else {
-        this.modalRematchText.textContent = 'PRACTICAR PISTA DE HOY';
+        this.modalRematchText.textContent = 'PRACTICAR';
       }
       this.modalRematchStatus.classList.add('hidden');
 
       if (this.modalShareBtn) {
         this.modalShareBtn.classList.remove('hidden');
+        if (this.modalShareText) this.modalShareText.textContent = 'COMPARTIR RESULTADO';
       }
 
       const toLobbyBtn = this.modalToLobbyBtn as HTMLButtonElement;
       if (toLobbyBtn) {
         toLobbyBtn.disabled = false;
         toLobbyBtn.classList.remove('btn-disabled');
-        toLobbyBtn.textContent = 'IR AL LOBBY';
+        toLobbyBtn.textContent = 'VOLVER AL MENÚ';
         toLobbyBtn.classList.remove('hidden');
       }
 
@@ -485,9 +474,9 @@ class DinoApp {
       highScore: this.soloHighScore,
     };
 
-    this.modalResultTitle.textContent = 'G A M E   O V E R';
+    this.modalResultTitle.textContent = 'FIN DE LA PARTIDA';
     this.modalResultTitle.style.color = '#e74c3c';
-    this.modalResultSub.textContent = 'PARTIDA EN SOLITARIO FINALIZADA';
+    this.modalResultSub.textContent = 'MODO LIBRE';
     this.modalResultIcon.src = '/icons/close.svg';
 
     const soloDisplay = formatSoloModalDisplay(myDist, prevHighScore);
@@ -508,7 +497,7 @@ class DinoApp {
     if (toLobbyBtn) {
       toLobbyBtn.disabled = false;
       toLobbyBtn.classList.remove('btn-disabled');
-      toLobbyBtn.textContent = 'IR AL LOBBY';
+      toLobbyBtn.textContent = 'VOLVER AL MENÚ';
       toLobbyBtn.classList.remove('hidden');
     }
 
@@ -1301,15 +1290,17 @@ class DinoApp {
     const state = loadDailyState(todayUtc);
     const count = state.attempts.length;
 
-    if (count < MAX_OFFICIAL_ATTEMPTS) {
+    if (count === 0) {
+      this.dailyBtnBadge.textContent = 'META: 1.000 PTS';
+    } else if (count < MAX_OFFICIAL_ATTEMPTS) {
       if (state.completed) {
-        this.dailyBtnBadge.textContent = `${count}/3 · ⭐ ${state.bestOfficialScore} pts`;
+        this.dailyBtnBadge.textContent = `⭐ ${state.bestOfficialScore} PTS`;
       } else {
-        this.dailyBtnBadge.textContent = `${MAX_OFFICIAL_ATTEMPTS - count} INTENTOS`;
+        this.dailyBtnBadge.textContent = `INTENTO ${count + 1}/3`;
       }
     } else {
       if (state.completed) {
-        this.dailyBtnBadge.textContent = `⭐ ${state.bestOfficialScore} pts · PRÁCTICA`;
+        this.dailyBtnBadge.textContent = `⭐ ${state.bestOfficialScore} PTS`;
       } else {
         this.dailyBtnBadge.textContent = 'PRÁCTICA';
       }
@@ -1327,9 +1318,9 @@ class DinoApp {
 
     const attCount = this.currentDailyState.attempts.length;
     if (attCount < MAX_OFFICIAL_ATTEMPTS) {
-      this.gameModeTag.textContent = `MODO: DESAFÍO DIARIO (INTENTO ${attCount + 1}/${MAX_OFFICIAL_ATTEMPTS})`;
+      this.gameModeTag.textContent = 'RETO DEL DÍA (META: 1.000 PTS)';
     } else {
-      this.gameModeTag.textContent = 'MODO: DESAFÍO DIARIO (PRÁCTICA)';
+      this.gameModeTag.textContent = 'RETO DEL DÍA (PRÁCTICA)';
     }
 
     this.pingText.textContent = 'LOCAL';
@@ -1343,14 +1334,15 @@ class DinoApp {
   private updateScoreboardDisplays(): void {
     if (this.isSoloMode) {
       if (this.isDailyMode && this.currentDailyState) {
-        const metaStr = this.currentDailyState.completed ? '⭐ META SUPERADA' : 'META: 1.000 pts';
+        const attCount = this.currentDailyState.attempts.length;
+        const prefix = attCount < MAX_OFFICIAL_ATTEMPTS ? `INTENTO ${attCount + 1}/3` : 'PRÁCTICA';
         const bestStr =
           this.currentDailyState.bestOfficialScore > 0
-            ? `RÉCORD: ${this.currentDailyState.bestOfficialScore} pts`
-            : metaStr;
-        this.sessionScoreTag.textContent = bestStr;
+            ? `MEJOR: ${this.currentDailyState.bestOfficialScore} PTS`
+            : 'META: 1.000 PTS';
+        this.sessionScoreTag.textContent = `${prefix} · ${bestStr}`;
       } else {
-        const best = this.soloHighScore > 0 ? `RÉCORD: ${this.soloHighScore}m` : 'EN SOLITARIO';
+        const best = this.soloHighScore > 0 ? `RÉCORD: ${this.soloHighScore}m` : 'MODO LIBRE';
         this.sessionScoreTag.textContent = best;
       }
       this.modalSeriesBadge.textContent = '';
@@ -1405,9 +1397,9 @@ class DinoApp {
         if (this.currentDailyState) {
           const attCount = this.currentDailyState.attempts.length;
           if (attCount < MAX_OFFICIAL_ATTEMPTS) {
-            this.gameModeTag.textContent = `MODO: DESAFÍO DIARIO (INTENTO ${attCount + 1}/${MAX_OFFICIAL_ATTEMPTS})`;
+            this.gameModeTag.textContent = 'RETO DEL DÍA (META: 1.000 PTS)';
           } else {
-            this.gameModeTag.textContent = 'MODO: DESAFÍO DIARIO (PRÁCTICA)';
+            this.gameModeTag.textContent = 'RETO DEL DÍA (PRÁCTICA)';
           }
         }
         this.startCountdown(seed, performance.now() + COUNTDOWN_DURATION_MS);
@@ -2043,20 +2035,16 @@ class DinoApp {
     if (this.gameScreen.classList.contains('active')) {
       let countdownText: string | null = null;
 
-      // 5-Second Countdown (5, 4, 3, 2, 1, ¡YA!)
+      // 3-Second Countdown (3, 2, 1, ¡YA!)
       if (this.countdownEndTime !== null) {
         const remainingMs = this.countdownEndTime - performance.now();
-        if (remainingMs > 4000) {
-          countdownText = '5';
-        } else if (remainingMs > 3000) {
-          countdownText = '4';
-        } else if (remainingMs > 2000) {
+        if (remainingMs > 2000) {
           countdownText = '3';
         } else if (remainingMs > 1000) {
           countdownText = '2';
         } else if (remainingMs > 0) {
           countdownText = '1';
-        } else if (remainingMs > -600) {
+        } else if (remainingMs > -500) {
           countdownText = '¡YA!';
           this.isMatchRunning = true;
         } else {

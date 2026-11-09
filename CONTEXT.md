@@ -11,7 +11,7 @@
   - Eliminación de soft-lock al caer el Host: `markAllRemotePlayersDead()` garantiza que el jugador local continúe su carrera y obtenga su pantalla de fin de partida.
 - **Sincronización WebRTC y Red Robusta (Ticket 2):**
   - Secuenciación monotónica `seq` con descarte de paquetes fuera de orden (`seq <= lastSeq`), erradicando el *rubberbanding* hacia atrás.
-  - Cuenta regresiva relativa (`countdownDurationMs = 5200`) desacoplada del reloj del sistema operativo (`performance.now()`) con compensación de latencia unidireccional ($RTT/2$).
+  - Cuenta regresiva unificada a 3 segundos (`countdownDurationMs = 3200`, 3, 2, 1, ¡YA!) desacoplada del reloj del sistema operativo (`performance.now()`) con compensación de latencia unidireccional ($RTT/2$).
   - Backpressure control con `safeSendState()`: descarte de paquetes efímeros si `bufferedAmount > 64KB` en el RTCDataChannel.
   - Medición de ping y RTT bidireccional en el anfitrión con suavizado EWMA ($\alpha = 0.2$).
 - **Motor Canvas 2D de Alta Fluidez (Ticket 3):**
