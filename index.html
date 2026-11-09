@@ -245,7 +245,6 @@
         <div class="stat-tag" id="game-mode-tag">SALA: <span id="game-room-code">----</span></div>
         <div class="stat-tag scoreboard-tag" id="session-score-tag">MARCADOR: TÚ 0 - 0 RIVAL</div>
         <div class="top-bar-actions">
-          <button id="debug-toggle-btn" class="classic-btn btn-compact" title="Panel de Debug & Bots (Tecla B)">🛠️ BOTS</button>
           <button id="lobby-game-btn" class="classic-btn btn-compact">LOBBY</button>
           <button id="exit-game-btn" class="classic-btn btn-compact btn-exit">SALIR</button>
         </div>
@@ -297,44 +296,6 @@
           SALTAR
         </button>
       </div>
-    </div>
-  </div>
-
-  <!-- DEBUG / BOTS MODAL PANEL (Tecla 'B' o ?debug) -->
-  <div id="debug-modal" class="game-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="debug-title">
-    <div class="modal-card debug-card">
-      <div class="debug-header">
-        <h2 id="debug-title" class="debug-title">🛠️ PANEL DE DEBUG & BOTS</h2>
-        <button id="debug-close-btn" class="classic-btn btn-compact">✕</button>
-      </div>
-
-      <p class="debug-desc">
-        Atajo: pulsa la tecla <kbd>B</kbd> para abrir/cerrar este panel en cualquier momento.
-      </p>
-
-      <div class="debug-btn-list">
-        <button id="debug-add-bot-btn" class="classic-btn classic-btn-primary">
-          🤖 + Añadir 1 Bot <span class="debug-btn-sub">Agrega un bot autónomo con física y reacción real</span>
-        </button>
-
-        <button id="debug-fill-room-btn" class="classic-btn btn-secondary">
-          👥 Llenar Sala (4/4 Jugadores) <span class="debug-btn-sub">Completa los 4 slots para probar el layout de 4 pantallas</span>
-        </button>
-
-        <button id="debug-spectate-bot-btn" class="classic-btn btn-secondary">
-          👀 Unir Bot en Modo Espectador <span class="debug-btn-sub">Simula un bot entrando a mitad de partida</span>
-        </button>
-
-        <button id="debug-test-room-full-btn" class="classic-btn btn-secondary">
-          🚫 Simular Intento de Entrada (Sala Llena) <span class="debug-btn-sub">Prueba el rechazo explícito (4/4)</span>
-        </button>
-
-        <button id="debug-clear-bots-btn" class="classic-btn btn-back">
-          🧹 Limpiar / Expulsar Todos los Bots
-        </button>
-      </div>
-
-      <div id="debug-status-text" class="debug-status-text"></div>
     </div>
   </div>
 

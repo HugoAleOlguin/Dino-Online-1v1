@@ -98,12 +98,11 @@ export class DoubleTrackRenderer {
     ];
 
     if (remotePlayer && !isSolo) {
-      const isBot = remotePlayer.name.includes('BOT');
       tracks.push({
         distance: remotePlayer.distance,
         player: remotePlayer,
         obstacles: localEngine.obstacles,
-        label: isBot ? 'BOT' : 'PISTA RIVAL (P2)',
+        label: 'PISTA RIVAL (P2)',
         accentColor: remotePlayer.color || '#acacac',
         isLocal: false,
       });

@@ -51,5 +51,5 @@
   - `tests/p2p-sync.test.ts` (18 tests): Secuenciación de paquetes, descarte fuera de orden, countdown relativo, backpressure y ping EWMA.
   - `tests/fluidity-interpolation.test.ts` (16 tests): Interpolación $\alpha$, balística parabólica, culling $O(\log N)$ y sincronización de Web Worker.
   - `tests/ux-accessibility.test.ts` (12 tests): Banners de estado, safe areas, parsing de URLs, swatches accesibles y clases de ping.
-  - Suites existentes (61 tests): `tests/solo-modal.test.ts`, `tests/bot-simulator.test.ts`, `tests/multi-track-layout.test.ts`, etc.
+  - Suites existentes (57 tests): `tests/solo-modal.test.ts`, `tests/multi-track-layout.test.ts`, etc.
 - **Build de Producción:** Vite + TypeScript compilan con **0 errores**.

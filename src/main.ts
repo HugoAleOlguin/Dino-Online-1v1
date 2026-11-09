@@ -26,7 +26,6 @@ import {
   formatSoloModalDisplay,
   extractRoomCode,
 } from './core/lobby-helpers';
-import { BotSimulator, createRandomBotProfile } from './core/bot-simulator';
 
 // Authentic Chrome Dino Palette
 const COLORS = [
@@ -209,18 +208,6 @@ class DinoApp {
   // Background Web Worker ticker to keep physics running when tab is in background
   private tickerWorker: Worker | null = null;
 
-  // Debug & Bots System
-  private bots: Map<string, BotSimulator> = new Map();
-  private debugModal = document.getElementById('debug-modal') as HTMLElement | null;
-  private debugCloseBtn = document.getElementById('debug-close-btn');
-  private debugAddBotBtn = document.getElementById('debug-add-bot-btn');
-  private debugFillRoomBtn = document.getElementById('debug-fill-room-btn');
-  private debugSpectateBotBtn = document.getElementById('debug-spectate-bot-btn');
-  private debugTestRoomFullBtn = document.getElementById('debug-test-room-full-btn');
-  private debugClearBotsBtn = document.getElementById('debug-clear-bots-btn');
-  private debugStatusText = document.getElementById('debug-status-text');
-  private debugToggleBtn = document.getElementById('debug-toggle-btn');
-
   constructor() {
     this.spriteManager = new SpriteManager();
   }
@@ -269,16 +256,6 @@ class DinoApp {
       } else {
         this.joinRoom(code);
       }
-    }
-
-    // 6b. Check if ?debug or /debug or #debug is requested
-    if (
-      urlParams.has('debug') ||
-      window.location.search.includes('debug') ||
-      window.location.pathname.includes('/debug') ||
-      window.location.hash.includes('debug')
-    ) {
-      this.toggleDebugModal();
     }
 
     // Clear host lock if host closes the window/tab
@@ -360,27 +337,6 @@ class DinoApp {
       }
     }
 
-    // Step simulated bots
-    if (this.bots.size > 0) {
-      const speed = this.localEngine.speed;
-      const obstacles = this.localEngine.obstacles;
-      let anyBotDied = false;
-
-      for (const bot of this.bots.values()) {
-        const justDied = bot.update(dt, speed, obstacles);
-        const rp = this.remotePlayers.get(bot.peerId);
-        if (rp) {
-          Object.assign(rp.state, bot.state);
-        }
-        if (justDied) {
-          anyBotDied = true;
-        }
-      }
-
-      if (anyBotDied && this.isAllPlayersDead()) {
-        this.evaluateMatchWinner();
-      }
-    }
   }
 
   private setupEngineCallbacks(): void {
@@ -940,9 +896,6 @@ class DinoApp {
         rp.visualDistance = 0;
         rp.visualY = 0;
       }
-      for (const bot of this.bots.values()) {
-        bot.resetForNewMatch();
-      }
       this.hasPlayedMatchWithCurrentRival = true;
     }
 
@@ -1215,116 +1168,6 @@ class DinoApp {
         this.startCountdown(seed, performance.now() + COUNTDOWN_DURATION_MS);
       });
     }
-
-    // 21. Debug & Bots Panel Controls
-    this.debugToggleBtn?.addEventListener('click', () => this.toggleDebugModal());
-    this.debugCloseBtn?.addEventListener('click', () => this.toggleDebugModal());
-    this.debugAddBotBtn?.addEventListener('click', () => this.addBot(false));
-    this.debugFillRoomBtn?.addEventListener('click', () => this.fillRoomWithBots());
-    this.debugSpectateBotBtn?.addEventListener('click', () => this.addBot(true));
-    this.debugTestRoomFullBtn?.addEventListener('click', () => this.testRoomFull());
-    this.debugClearBotsBtn?.addEventListener('click', () => this.clearAllBots());
-  }
-
-  private toggleDebugModal(): void {
-    if (!this.debugModal) return;
-    const isHidden = this.debugModal.classList.contains('hidden');
-    if (isHidden) {
-      this.debugModal.classList.remove('hidden');
-      this.updateDebugStatusDisplay();
-    } else {
-      this.debugModal.classList.add('hidden');
-    }
-  }
-
-  private setDebugStatus(msg: string, color: string = '#2ecc71'): void {
-    if (this.debugStatusText) {
-      this.debugStatusText.textContent = msg;
-      this.debugStatusText.style.color = color;
-    }
-  }
-
-  private updateDebugStatusDisplay(): void {
-    const total = 1 + this.remotePlayers.size;
-    const botsCount = this.bots.size;
-    this.setDebugStatus(`Estado: ${total}/4 jugadores en sala (${botsCount} bots activos).`, '#3498db');
-  }
-
-  private addBot(isSpectating: boolean = false): void {
-    const currentCount = 1 + this.remotePlayers.size;
-    if (currentCount >= 4) {
-      this.setDebugStatus('⚠️ La sala está llena (4/4 jugadores). Límite alcanzado.', '#e74c3c');
-      return;
-    }
-
-    const botIndex = this.bots.size + 1;
-    const peerId = 'bot-' + Math.random().toString(36).substring(2, 7);
-    const profile = createRandomBotProfile(botIndex);
-    const bot = new BotSimulator(peerId, profile, isSpectating);
-    this.bots.set(peerId, bot);
-
-    this.remotePlayers.set(peerId, {
-      peerId,
-      profile: {
-        name: profile.name,
-        color: profile.color,
-        skinId: profile.skinId,
-      },
-      state: bot.state,
-      visualDistance: 0,
-      visualY: 0,
-      isSpectating,
-    });
-
-    this.isSoloMode = false;
-    this.hasPlayedMatchWithCurrentRival = false;
-    this.updateLobbyCards();
-    this.updateScoreboardDisplays();
-
-    if (this.p2p.isHost) {
-      this.hostStartBtn.classList.remove('hidden');
-      this.hostStatusBox.innerHTML = `¡Bot conectado: <strong style="color: ${profile.color}">${escapeHtml(profile.name)}</strong>! (${1 + this.remotePlayers.size}/4)`;
-    }
-
-    const modeText = isSpectating ? ' (Modo Espectador)' : '';
-    this.setDebugStatus(`✅ Añadido ${profile.name}${modeText} (${1 + this.remotePlayers.size}/4 jugadores).`, '#2ecc71');
-  }
-
-  private fillRoomWithBots(): void {
-    let added = 0;
-    while (1 + this.remotePlayers.size < 4) {
-      const isSpectating = this.isMatchRunning;
-      this.addBot(isSpectating);
-      added++;
-    }
-    if (added === 0) {
-      this.setDebugStatus('⚠️ La sala ya tiene 4/4 jugadores.', '#e74c3c');
-    } else {
-      this.setDebugStatus(`✅ Sala completada con éxito: 4/4 jugadores listos.`, '#2ecc71');
-    }
-  }
-
-  private testRoomFull(): void {
-    const mockFullError = { type: 'room-full', message: 'room is full' };
-    const friendlyMsg = formatP2PErrorMessage(mockFullError);
-    this.showError(friendlyMsg);
-    this.setDebugStatus(`🚫 Simulación: 5º jugador rechazado con mensaje oficial.`, '#e74c3c');
-  }
-
-  private clearAllBots(): void {
-    for (const botId of this.bots.keys()) {
-      this.remotePlayers.delete(botId);
-    }
-    this.bots.clear();
-    this.updateLobbyCards();
-    this.updateScoreboardDisplays();
-    if (this.remotePlayers.size === 0) {
-      if (this.p2p.isHost) {
-        this.hostStartBtn.classList.add('hidden');
-        this.hostStatusBox.innerHTML = '<span class="pulsing-dot"></span> Esperando a que el rival entre con el enlace...';
-      }
-    }
-    this.setDebugStatus('🧹 Todos los bots eliminados.', '#acacac');
   }
 
   private updateScoreboardDisplays(): void {
@@ -1851,18 +1694,6 @@ class DinoApp {
       }
 
       const isTyping = document.activeElement && ['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName);
-
-      if (!isTyping && (e.code === 'KeyB' || e.key === 'b' || e.key === 'B')) {
-        e.preventDefault();
-        this.toggleDebugModal();
-        return;
-      }
-
-      if (e.code === 'Escape' && this.debugModal && !this.debugModal.classList.contains('hidden')) {
-        e.preventDefault();
-        this.toggleDebugModal();
-        return;
-      }
 
       if (['Space', 'ArrowUp', 'KeyW'].includes(e.code)) {
         if (this.gameScreen.classList.contains('active')) {

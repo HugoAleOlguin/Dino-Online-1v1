@@ -905,65 +905,7 @@ kbd {
   font-size: 0.75rem;
 }
 
-/* 12. Debug & Bot Panel Styles */
-.debug-card {
-  max-width: 460px;
-  width: 92%;
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.debug-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 2px solid var(--border);
-  padding-bottom: 6px;
-}
-
-.debug-title {
-  margin: 0;
-  font-size: 0.95rem;
-  color: var(--gold);
-}
-
-.debug-desc {
-  font-family: system-ui, sans-serif;
-  font-size: 0.75rem;
-  color: var(--text-dim);
-  line-height: 1.4;
-}
-
-.debug-btn-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.debug-btn-list .classic-btn {
-  text-align: left;
-  justify-content: flex-start;
-  padding: 8px 10px;
-  font-size: 0.65rem;
-}
-
-.debug-btn-sub {
-  font-family: system-ui, sans-serif;
-  font-size: 0.65rem;
-  color: var(--text-muted);
-  display: block;
-  margin-top: 2px;
-}
-
-.debug-status-text {
-  font-size: 0.72rem;
-  color: var(--green);
-  min-height: 16px;
-}
-
-/* 13. Mobile Landscape Optimization */
+/* 12. Mobile Landscape Optimization */
 @media (orientation: landscape) and (max-height: 520px) {
   #game-screen {
     padding: 4px 8px;
